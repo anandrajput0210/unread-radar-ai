@@ -1,0 +1,5 @@
+Delete these obsolete rule-parser files when applying this patch:
+- src/lib/conversationParser.js
+- tests/conversationParser.test.js
+
+Install @mlc-ai/web-llm@0.2.84 with `npm install @mlc-ai/web-llm@0.2.84` to update package.json and package-lock.json without overwriting the rest of the existing project configuration.
