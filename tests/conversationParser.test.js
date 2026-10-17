@@ -117,3 +117,16 @@ test("deduplicates repeated action and deadline records", () => {
   assert.equal(result.actions.length, 1);
   assert.equal(result.deadlines.length, 1);
 });
+
+test("does not treat a date in an explicit no-action statement as a deadline", () => {
+  const result = analyzeConversations(
+    [
+      "Anand: We do not need to redesign the dashboard today.",
+      "Priya: Please fix the login bug by 5 PM today.",
+    ].join("\n")
+  );
+
+  assert.equal(result.deadlines.length, 1);
+  assert.match(result.deadlines[0].text, /fix the login bug/i);
+  assert.equal(result.actions.some((item) => /redesign the dashboard/i.test(item.text)), false);
+});

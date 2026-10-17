@@ -178,7 +178,7 @@ export default function App() {
       count: analysis.urgentRows.length,
       total: lineCount,
       percent: toPercent(analysis.urgentRows.length, lineCount),
-      description: "Rows classified by local AI",
+      description: "Rows flagged by local AI and rule checks",
       fillClass: "bg-rose-400",
       glowClass: "shadow-[0_0_15px_rgba(244,63,94,0.38)]",
       icon: AlertCircle,
@@ -190,7 +190,7 @@ export default function App() {
       count: analysis.actions.length,
       total: lineCount,
       percent: toPercent(analysis.actions.length, lineCount),
-      description: "Potential tasks extracted by model",
+      description: "Task candidates from local AI and rule checks",
       fillClass: "bg-indigo-400",
       glowClass: "shadow-[0_0_15px_rgba(99,102,241,0.4)]",
       icon: ClipboardList,
@@ -202,7 +202,7 @@ export default function App() {
       count: analysis.deadlines.length,
       total: lineCount,
       percent: toPercent(analysis.deadlines.length, lineCount),
-      description: "Rows with extracted time references",
+      description: "Rows with possible dates or time references",
       fillClass: "bg-amber-300",
       glowClass: "shadow-[0_0_15px_rgba(252,211,77,0.35)]",
       icon: CalendarClock,
@@ -299,7 +299,8 @@ export default function App() {
     handleLocalFile(file);
   }
 
-  async function runAnalysis() {
+  async function runAnalysis(options = {}) {
+    const forceFresh = options?.forceFresh === true;
     const source = chatText.trim();
     if (!source) {
       setAnalysisStatus({ type: "error", message: "Paste or upload a chat log before running analysis." });
@@ -315,15 +316,25 @@ export default function App() {
     }
 
     const runId = ++activeRunRef.current;
+    const startedAt = Date.now();
+    const modelWasReady = modelState.state === "ready";
+    let usedCachedResult = false;
+
     setIsAnalyzing(true);
     setHasAnalysis(false);
     setAnalysis(createEmptyAnalysis());
-    setAnalysisStatus({ type: "progress", message: "Starting local model…" });
-    setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
+    setAnalysisStatus({
+      type: "progress",
+      message: modelWasReady ? "Analyzing conversation on this device…" : "Loading the local model for its first use…",
+    });
+    if (!modelWasReady) {
+      setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
+    }
 
     try {
       const result = await analyzeTextLocally(source, (event) => {
         if (runId !== activeRunRef.current) return;
+        if (event.cached) usedCachedResult = true;
         if (event.stage === "model") {
           const progress = typeof event.progress === "number" ? Math.round(event.progress * 100) : 0;
           setModelState({ state: "loading", progress: Math.max(0, Math.min(100, progress)), message: event.message || "Downloading and initializing local model" });
@@ -332,18 +343,29 @@ export default function App() {
           setModelState((current) => ({ ...current, state: "ready", progress: 100, message: "Local model ready" }));
           setAnalysisStatus({ type: "progress", message: event.message || "Analyzing conversation locally" });
         }
-      });
+      }, { forceFresh });
 
       if (runId !== activeRunRef.current) return;
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      const segmentCount = Number.isFinite(result.sourceChunks) ? result.sourceChunks : 1;
       setAnalysis(result);
       setHasAnalysis(true);
       setTaskStates({});
-      setModelState({ state: "ready", progress: 100, message: "Local model ready · weights cached by browser" });
-      setAnalysisStatus({ type: "success", message: `Analysis complete on this device · ${result.sourceChunks} segment${result.sourceChunks === 1 ? "" : "s"} processed.` });
+      if (usedCachedResult && !modelWasReady) {
+        setModelState({ state: "not-loaded", progress: 0, message: "Cached result used; model was not loaded for this run" });
+      } else {
+        setModelState({ state: "ready", progress: 100, message: "Local model ready" });
+      }
+      setAnalysisStatus({
+        type: "success",
+        message: `${usedCachedResult ? "Cached results reused (use Run fresh analysis to run the model again)" : forceFresh ? "Fresh local model analysis complete" : "Analysis complete on this device"} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.`,
+      });
       setActiveTab("summary");
     } catch (error) {
       if (runId !== activeRunRef.current) return;
-      setModelState((current) => ({ ...current, state: "error", message: "Local model unavailable" }));
+      if (!modelWasReady) {
+        setModelState((current) => ({ ...current, state: "error", message: "Local model unavailable" }));
+      }
       setAnalysisStatus({ type: "error", message: error instanceof Error ? error.message : "Local analysis failed. Check WebGPU support and try again." });
     } finally {
       if (runId === activeRunRef.current) setIsAnalyzing(false);
@@ -539,7 +561,7 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
             <div className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
-                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log. No sample conversations are preloaded.</p></div>
+                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log. No sample conversations are preloaded.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">For faster repeats, up to three analysis results are cached in this tab session. The original chat is not stored in that cache, but results may quote chat text; close this tab to clear the session cache.</p></div>
                 <Badge tone="green"><LockKeyhole size={12} /> Local</Badge>
               </div>
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
@@ -552,8 +574,9 @@ export default function App() {
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
               <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing || !runtimeSupport.supported} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
-                {isAnalyzing ? "Running locally…" : modelState.state === "ready" ? "Analyze with local AI" : "Load model & analyze locally"}
+                {isAnalyzing ? "Analyzing locally…" : hasAnalysis ? "Analyze again" : modelState.state === "ready" ? "Analyze with local AI" : "Load model & analyze locally"}
               </button>
+              {hasAnalysis && !isAnalyzing && <button type="button" onClick={() => runAnalysis({ forceFresh: true })} disabled={!chatText.trim() || !runtimeSupport.supported} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">Run fresh analysis (skip cache)</button>}
               {analysisStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2.5 text-xs leading-5", analysisStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : analysisStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : "bg-cyan-300/10 text-cyan-100")} role={analysisStatus.type === "error" ? "alert" : "status"} aria-live="polite">{analysisStatus.message}</p>}
               <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">The first run downloads model weights. Inference runs on this device; conversation contents are not posted to a cloud AI endpoint. Model downloading requires an internet connection the first time.</p></div></div></div>
             </div>
@@ -568,11 +591,11 @@ export default function App() {
               </section>
 
               <section className="overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/45 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl">
-                <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Findings are generated by the on-device language model, then validated and normalized locally." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
+                <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Summary items quote source-backed findings to reduce speaker and task-owner mix-ups. Review important details against the original chat." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
                   <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[10px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then load the local model and run analysis. No sample chats or keyword parser are used." /> : <><div className="rounded-xl border border-indigo-300/15 bg-gradient-to-br from-indigo-500/10 to-cyan-400/[0.04] p-4"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Local AI summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge></div><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">The model returned no summary items.</p>}</div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-xl border border-indigo-300/15 bg-gradient-to-br from-indigo-500/10 to-cyan-400/[0.04] p-4"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Source-grounded summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge></div><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No source-grounded summary items were found.</p>}</div>
                     <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
                       <div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}

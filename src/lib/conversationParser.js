@@ -291,13 +291,16 @@ export function extractMentions(text) {
   );
 }
 
+const NON_ACTIONABLE_TIME_REFERENCE_REGEX =
+  /\b(?:do\s+not|don't|does\s+not|doesn't|did\s+not|didn't)\s+need\s+to\b|\bno\s+need\s+to\b|\bnot\s+(?:necessary|required)\s+to\b|\b(?:do\s+not|don't)\s+have\s+to\b/i;
+
 export function extractDeadlines(text) {
   const items = [];
 
   for (const rawLine of String(text ?? "").split(/\r?\n/)) {
     const line = normalizeLine(rawLine);
 
-    if (!line) {
+    if (!line || NON_ACTIONABLE_TIME_REFERENCE_REGEX.test(line)) {
       continue;
     }
 

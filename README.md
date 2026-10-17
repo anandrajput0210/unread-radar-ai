@@ -1,66 +1,54 @@
-# Unread Radar AI 🛰️
-> **Genuine On-Device Hybrid LLM & Priority Engineering Platform**
+# Unread Radar AI
 
-Built for the **ProtocolX Hackathon**, **Unread Radar AI** is a cutting-edge, local-first web application engineered to parse, extract, and prioritize critical actionable signals from chaotic, overwhelming chat conversation streams—**operating 100% within the browser sandbox with zero external server dependencies.**
+Unread Radar AI is a privacy-first conversation triage web app built with React, Vite, Tailwind CSS, WebLLM, and Qwen 2.5. It turns pasted conversation text or exported `.txt`/`.log` files into a reviewable summary of candidate tasks, mentions, deadlines/time references, decisions, and urgent messages.
 
-Live Production Deployment: [unread-radar-ai.vercel.app](https://vercel.app)
+## Features
 
----
+- Browser-based local inference through WebLLM and WebGPU; no hosted chat-completion API is required.
+- Hybrid analysis: language-model output is combined with conservative local rules for common task, mention, urgency, and date patterns.
+- Drag-and-drop or local `.txt` / `.log` upload (up to 5 MB per file).
+- Action-item tracking, urgency filtering, and Markdown executive-brief export.
+- Progress/error feedback and testable normalization of model output.
+- A cache of up to three recent analysis results for the current tab session. Cache keys are SHA-256 hashes of the model ID and input text; the original input text is not copied into the cache. Cached results can contain extracted evidence or snippets, so close the tab to clear the session cache.
 
-## 💎 The Competitive Moat & Architecture
+## Tech stack
 
-### 1. 100% Strict Local Egress Model (Privacy-First)
-Unlike standard implementations that rely on brittle third-party cloud API endpoints (which leak user text payloads and fail under congested venue networks), this system enforces absolute data custody. **Data never leaves the user's device.** 
+- React 18, Vite 5, JavaScript
+- Tailwind CSS 4, Lucide React
+- `@mlc-ai/web-llm` with `Qwen2.5-0.5B-Instruct-q4f16_1-MLC`
+- Node.js built-in test runner (`node --test`)
 
-### 2. Multi-Module Structural Pipeline
-The project has been refactored from a generic single-file prototype into an enterprise-ready, decoupled multi-module architecture:
-- `src/lib/localAiEngine.js`: Controls token inference routing and browser-native model access (`window.ai`).
-- `src/lib/analysisSchema.js`: Handles localized structural data parsing, regular expression character matrix loops, and token extraction.
-- `tests/analysisSchema.test.js`: Contains automated validation tracks verifying parsing accuracy.
+## Run locally
 
-### 3. Feature Capabilities
-- 📂 **Local File Drop Engine:** Drag-and-drop or upload raw `.txt` and `.log` files directly into the platform using the client-side HTML5 FileReader API.
-- 📊 **Operational Index Analytics:** Real-time visual tracking gauges styled with pure Tailwind CSS utility rules, dynamically calculating metrics ratios in under 2 milliseconds.
-- 💾 **Executive Brief Exporter:** Compiles parsed summaries, task arrays, and identity flags into a clean Markdown block, generating a browser Blob download link entirely offline.
+Requirements: a recent Node.js release and a current Chrome/Edge browser with WebGPU available. The first model initialization downloads model assets, so it requires network access; later use may benefit from browser caching.
 
----
+```bash
+npm install
+npm run dev
+```
 
-## 🛠️ Tech Stack & Dependencies
+Open the local URL printed by Vite (commonly `http://localhost:5173`). To verify the project:
 
-- **Core Framework:** React 18 / Vite 5
-- **Styling UI:** Tailwind CSS 4 (Glassmorphism cyberpunk tech mesh styling)
-- **Icons Layout:** Lucide React Icons
-- **Deployment Architecture:** Vercel Production Pipelines
-- **Version Control:** Git / GitHub Core Tracking Pipeline
+```bash
+npm test
+npm run build
+npm run preview
+```
 
----
+## Privacy and limitations
 
-## 🚀 Local Engineering Setup
+Conversation inference runs in the browser. The app does not send pasted chat text to a hosted chat-completion API. Model assets are downloaded from their hosting location on first use. Up to three analysis results are held in `sessionStorage` for the current tab session to speed repeated analysis; those results can contain extracted chat snippets. Closing the tab clears session storage. Use only conversations you are authorized to process and review extracted findings before acting on them.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com
-   cd unread-radar-ai
-   ```
+WebGPU support and performance vary by browser and hardware. A production build passing does not guarantee that model inference will work on every device. Model outputs and rule-based extractions may be incomplete or mistaken; verify tasks, owners, urgency, and time references against the original chat. Relative dates such as “today” are not converted into calendar dates unless the source provides enough context.
 
-2. **Install node dependencies:**
-   ```bash
-   npm install
-   ```
+## Project links
 
-3. **Boot local development engine server:**
-   ```bash
-   npm run dev
-   ```
+- GitHub: https://github.com/anandrajput0210/unread-radar-ai
+- Production deployment: https://unread-radar-ai-six.vercel.app/
 
-4. **Compile production build distribution:**
-   ```bash
-   npm run build
-   ```
+## Suggested manual QA
 
----
-
-## 🏆 Development & Prompt Pedigree
-All AI-assisted implementation sequences, code block transformations, architecture decisions, and debugging history loops are completely documented inside the mandatory [`prompt.md`](./prompt.md) file located at the root level of this repository.
-
-*Engineered with discipline, prompted systematically, and built to scale securely.*
+1. Analyze a short chat with one explicit task, one direct `@mention`, and one deadline.
+2. Include a decision and a negated statement such as “we do not need to redesign this today”; it should not become a task or false deadline.
+3. Re-analyze the exact same input. The session cache should make this repeat much faster, including after a page refresh in the same tab if the same text is pasted back.
+4. Verify the task owner and date against the source before exporting the Markdown report.
