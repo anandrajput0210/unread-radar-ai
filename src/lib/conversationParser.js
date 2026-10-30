@@ -150,6 +150,30 @@ function normalizeLine(line) {
     .trim();
 }
 
+function sourceLineRecords(text) {
+  const value = String(text ?? "");
+  const lines = value.split(/\r?\n/);
+  let startOffset = 0;
+  return lines.map((rawText, index) => {
+    const endOffset = startOffset + rawText.length;
+    const record = {
+      rawText,
+      startOffset,
+      endOffset,
+      ordinal: index,
+      text: normalizeLine(rawText),
+    };
+    if (index < lines.length - 1) {
+      startOffset = endOffset + (value.startsWith("\r\n", endOffset) ? 2 : 1);
+    }
+    return record;
+  });
+}
+
+function sourceSpan(record) {
+  return { startOffset: record.startOffset, endOffset: record.endOffset };
+}
+
 function uniqueBy(items, keyFn) {
   const seen = new Set();
 
@@ -257,38 +281,25 @@ export function urgencyFor(text) {
 export function extractMentions(text) {
   const matches = [];
 
-  for (const line of String(text ?? "").split(/\r?\n/)) {
-    const regex = new RegExp(
-      MENTION_REGEX.source,
-      "gu"
-    );
-
+  for (const record of sourceLineRecords(text)) {
+    const line = record.text;
+    const regex = new RegExp(MENTION_REGEX.source, "gu");
     let match;
 
     while ((match = regex.exec(line)) !== null) {
       const handle = match[2];
-
-      if (
-        handle &&
-        !SPECIAL_MENTIONS.has(handle.toLowerCase())
-      ) {
+      if (handle && !SPECIAL_MENTIONS.has(handle.toLowerCase())) {
         matches.push({
           handle,
-          line: normalizeLine(line),
+          line,
+          sourceSpan: sourceSpan(record),
         });
       }
-
-      if (match[0].length === 0) {
-        regex.lastIndex += 1;
-      }
+      if (match[0].length === 0) regex.lastIndex += 1;
     }
   }
 
-  return uniqueBy(
-    matches,
-    (item) =>
-      `${item.handle.toLowerCase()}|${item.line.toLowerCase()}`
-  );
+  return uniqueBy(matches, (item) => `${item.handle.toLowerCase()}|${item.line.toLowerCase()}`);
 }
 
 const NON_ACTIONABLE_TIME_REFERENCE_REGEX =
@@ -297,36 +308,23 @@ const NON_ACTIONABLE_TIME_REFERENCE_REGEX =
 export function extractDeadlines(text) {
   const items = [];
 
-  for (const rawLine of String(text ?? "").split(/\r?\n/)) {
-    const line = normalizeLine(rawLine);
+  for (const record of sourceLineRecords(text)) {
+    const line = record.text;
+    if (!line || NON_ACTIONABLE_TIME_REFERENCE_REGEX.test(line)) continue;
 
-    if (!line || NON_ACTIONABLE_TIME_REFERENCE_REGEX.test(line)) {
-      continue;
-    }
-
-    const matches = [
-      ...line.matchAll(
-        new RegExp(DATE_REGEX.source, "giu")
-      ),
-    ].map((match) => match[0]);
-
+    const matches = [...line.matchAll(new RegExp(DATE_REGEX.source, "giu"))].map((match) => match[0]);
     if (matches.length > 0) {
       items.push({
         id: `deadline-${items.length}-${line.slice(0, 18)}`,
         text: line,
-        dates: uniqueBy(
-          matches.map((value) => value.trim()),
-          (value) => value.toLowerCase()
-        ),
+        dates: uniqueBy(matches.map((value) => value.trim()), (value) => value.toLowerCase()),
         urgency: urgencyFor(line),
+        sourceSpan: sourceSpan(record),
       });
     }
   }
 
-  return uniqueBy(
-    items,
-    (item) => item.text.toLowerCase()
-  );
+  return uniqueBy(items, (item) => item.text.toLowerCase());
 }
 
 function inferAssignee(line) {
@@ -388,37 +386,32 @@ function hasDecisionSignal(line) {
 export function extractActions(text) {
   const actions = [];
   const decisions = [];
+  const decisionEvidence = [];
+  const records = sourceLineRecords(text).filter((record) => record.text);
 
-  const lines = String(text ?? "")
-    .split(/\r?\n/)
-    .map(normalizeLine)
-    .filter(Boolean);
-
-  lines.forEach((line, index) => {
+  records.forEach((record) => {
+    const line = record.text;
     if (hasActionDirective(line)) {
       actions.push({
-        id: `task-${index}-${line.slice(0, 16)}`,
+        id: `task-${record.ordinal}-${line.slice(0, 16)}`,
         text: line,
         owner: inferAssignee(line),
         urgency: urgencyFor(line),
         completed: false,
+        sourceSpan: sourceSpan(record),
       });
     }
 
     if (hasDecisionSignal(line)) {
       decisions.push(line);
+      decisionEvidence.push({ text: line, sourceSpan: sourceSpan(record) });
     }
   });
 
   return {
-    actions: uniqueBy(
-      actions,
-      (item) => item.text.toLowerCase()
-    ),
-    decisions: uniqueBy(
-      decisions,
-      (item) => item.toLowerCase()
-    ),
+    actions: uniqueBy(actions, (item) => item.text.toLowerCase()),
+    decisions: uniqueBy(decisions, (item) => item.toLowerCase()),
+    decisionEvidence: uniqueBy(decisionEvidence, (item) => item.text.toLowerCase()),
   };
 }
 
@@ -499,76 +492,52 @@ function buildSummary(
 }
 
 export function analyzeConversations(rawText) {
-  const text =
-    typeof rawText === "string"
-      ? rawText.trim()
-      : "";
-
-  if (!text) {
+  const text = typeof rawText === "string" ? rawText : "";
+  if (!text.trim()) {
     return {
-      actions: [],
-      decisions: [],
-      deadlines: [],
-      mentions: [],
-      summary: [],
-      alerts: [],
-      urgentRows: [],
-      lineCount: 0,
+      actions: [], decisions: [], decisionEvidence: [], deadlines: [], mentions: [],
+      summary: [], alerts: [], urgentRows: [], urgentRowEvidence: [], lineCount: 0,
     };
   }
 
-  const sourceLines = text
-    .split(/\r?\n/)
-    .map(normalizeLine)
-    .filter(Boolean);
-
-  const urgentRows = sourceLines.filter(
-    (line) => urgencyFor(line) === "High"
-  );
+  const records = sourceLineRecords(text);
+  const sourceRecords = records.filter((record) => record.text);
+  const sourceLines = sourceRecords.map((record) => record.text);
+  const urgentRowEvidence = sourceRecords
+    .filter((record) => urgencyFor(record.text) === "High")
+    .map((record) => ({ text: record.text, sourceSpan: sourceSpan(record) }));
+  const urgentRows = urgentRowEvidence.map((item) => item.text);
 
   const mentions = extractMentions(text);
   const deadlines = extractDeadlines(text);
-
-  const { actions, decisions } = extractActions(text);
+  const { actions, decisions, decisionEvidence } = extractActions(text);
 
   const alerts = uniqueBy(
     [
-      ...actions.map((item) => ({
-        ...item,
-        kind: "Action item",
-      })),
-
-      ...deadlines.map((item) => ({
-        ...item,
-        kind: "Deadline",
-      })),
-
+      ...actions.map((item) => ({ ...item, kind: "Action item" })),
+      ...deadlines.map((item) => ({ ...item, kind: "Deadline" })),
       ...mentions.map((item, index) => ({
         id: `mention-${index}`,
         text: `@${item.handle} mentioned: ${item.line}`,
         owner: item.handle,
         urgency: urgencyFor(item.line),
         kind: "Mention",
+        sourceSpan: item.sourceSpan,
       })),
     ],
-    (item) =>
-      `${item.kind}|${item.text.toLowerCase()}`
+    (item) => `${item.kind}|${item.text.toLowerCase()}`,
   );
 
   return {
     actions,
     decisions,
+    decisionEvidence,
     deadlines,
     mentions,
-    summary: buildSummary(
-      text,
-      actions,
-      deadlines,
-      decisions,
-      mentions
-    ),
+    summary: buildSummary(text, actions, deadlines, decisions, mentions),
     alerts,
     urgentRows,
+    urgentRowEvidence,
     lineCount: sourceLines.length,
   };
 }

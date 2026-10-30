@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -33,9 +33,14 @@ import {
   MAX_ANALYSIS_CHARACTERS,
   MODEL_ID,
   analyzeTextLocally,
+  analyzeTextWithRules,
   checkLocalModelSupport,
+  checkWebGPUCompatibility,
+  clearLegacySessionCache,
+  invalidateAnalysisWork,
 } from "./lib/localAiEngine.js";
 import { createEmptyAnalysis } from "./lib/analysisSchema.js";
+import { createSourceSnapshot } from "./lib/sourceSnapshot.js";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -110,6 +115,12 @@ function urgencyTone(urgency) {
   return "slate";
 }
 
+function sourceReferenceLabel(finding) {
+  return finding?.sourceReferenceStatus === "valid"
+    ? "Source reference valid; semantic support unverified"
+    : "UNVERIFIED: no exact source reference";
+}
+
 function ProgressMeter({ meter }) {
   const Icon = meter.icon;
   return (
@@ -160,8 +171,25 @@ export default function App() {
   const [hasAnalysis, setHasAnalysis] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [modelState, setModelState] = useState({ state: "not-loaded", progress: 0, message: "Model not loaded yet" });
+  const [sourceSnapshot, setSourceSnapshot] = useState(null);
+  const [legacyCacheStatus, setLegacyCacheStatus] = useState({ type: "", message: "" });
   const fileInputRef = useRef(null);
   const activeRunRef = useRef(0);
+  const legacyCleanupAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (legacyCleanupAttemptedRef.current) return;
+    legacyCleanupAttemptedRef.current = true;
+    const cleanup = clearLegacySessionCache();
+    if (!cleanup.success) {
+      setLegacyCacheStatus({
+        type: "error",
+        message: `The old session cache could not be confirmed as removed: ${cleanup.error}. Conversation analysis now uses memory-only caching; review this tab's site storage manually if needed.`,
+      });
+    } else if (cleanup.removed) {
+      setLegacyCacheStatus({ type: "success", message: "The legacy conversation-result cache entry was removed from this tab." });
+    }
+  }, []);
 
   const runtimeSupport = checkLocalModelSupport();
   const completedCount = analysis.actions.filter((task) => taskStates[task.id]).length;
@@ -217,7 +245,10 @@ export default function App() {
   });
 
   function resetAnalysis() {
+    // Invalidate async work before clearing data so late completions cannot repopulate the cache.
     activeRunRef.current += 1;
+    invalidateAnalysisWork();
+    setSourceSnapshot(null);
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
     setTaskStates({});
@@ -301,17 +332,13 @@ export default function App() {
 
   async function runAnalysis(options = {}) {
     const forceFresh = options?.forceFresh === true;
-    const source = chatText.trim();
-    if (!source) {
+    const source = chatText;
+    if (!source.trim()) {
       setAnalysisStatus({ type: "error", message: "Paste or upload a chat log before running analysis." });
       return;
     }
     if (source.length > MAX_ANALYSIS_CHARACTERS) {
       setAnalysisStatus({ type: "error", message: `This log is too large for a safe interactive run (${source.length.toLocaleString()} characters). Split it into smaller files or keep it under ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} characters.` });
-      return;
-    }
-    if (!runtimeSupport.supported) {
-      setAnalysisStatus({ type: "error", message: runtimeSupport.reason });
       return;
     }
 
@@ -323,15 +350,43 @@ export default function App() {
     setIsAnalyzing(true);
     setHasAnalysis(false);
     setAnalysis(createEmptyAnalysis());
-    setAnalysisStatus({
-      type: "progress",
-      message: modelWasReady ? "Analyzing conversation on this device…" : "Loading the local model for its first use…",
-    });
-    if (!modelWasReady) {
-      setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
-    }
+    setSourceSnapshot(null);
+    setAnalysisStatus({ type: "progress", message: "Preserving source text and validating local processing support…" });
 
     try {
+      const snapshot = await createSourceSnapshot(source);
+      if (runId !== activeRunRef.current) return;
+      setSourceSnapshot(snapshot);
+
+      const webGpu = await checkWebGPUCompatibility();
+      if (runId !== activeRunRef.current) return;
+
+      if (!webGpu.supported) {
+        const result = await analyzeTextWithRules(source, { sourceSnapshot: snapshot });
+        if (runId !== activeRunRef.current) return;
+        const boundaryNote = snapshot.boundaryMode === "opaque"
+          ? " This import has no reliably recognized speaker boundaries, so it is treated as one source message; author and timestamp remain unknown and message-level granularity is reduced."
+          : " Recognized message headers are retained, but extracted interpretations still require human review.";
+        setAnalysis(result);
+        setHasAnalysis(true);
+        setTaskStates({});
+        setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
+        setAnalysisStatus({
+          type: "warning",
+          message: `WebGPU unavailable; rules-only fallback completed. Coverage is limited to deterministic local patterns, not language-model understanding.${boundaryNote}`,
+        });
+        setActiveTab("summary");
+        return;
+      }
+
+      setAnalysisStatus({
+        type: "progress",
+        message: modelWasReady ? "Analyzing conversation on this device…" : "Loading the local model for its first use…",
+      });
+      if (!modelWasReady) {
+        setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
+      }
+
       const result = await analyzeTextLocally(source, (event) => {
         if (runId !== activeRunRef.current) return;
         if (event.cached) usedCachedResult = true;
@@ -343,7 +398,7 @@ export default function App() {
           setModelState((current) => ({ ...current, state: "ready", progress: 100, message: "Local model ready" }));
           setAnalysisStatus({ type: "progress", message: event.message || "Analyzing conversation locally" });
         }
-      }, { forceFresh });
+      }, { forceFresh, sourceSnapshot: snapshot });
 
       if (runId !== activeRunRef.current) return;
       const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
@@ -351,14 +406,13 @@ export default function App() {
       setAnalysis(result);
       setHasAnalysis(true);
       setTaskStates({});
-      if (usedCachedResult && !modelWasReady) {
-        setModelState({ state: "not-loaded", progress: 0, message: "Cached result used; model was not loaded for this run" });
-      } else {
-        setModelState({ state: "ready", progress: 100, message: "Local model ready" });
-      }
+      setModelState({ state: "ready", progress: 100, message: "Local model ready" });
+      const granularityNote = snapshot.boundaryMode === "opaque"
+        ? " Source boundaries were not recognizable; this import is represented as one source message with unknown author/time."
+        : " Recognized source records are retained.";
       setAnalysisStatus({
         type: "success",
-        message: `${usedCachedResult ? "Cached results reused (use Run fresh analysis to run the model again)" : forceFresh ? "Fresh local model analysis complete" : "Analysis complete on this device"} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.`,
+        message: `${usedCachedResult ? "In-memory results reused" : forceFresh ? "Fresh local model analysis complete" : "Analysis complete on this device"} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.${granularityNote}`,
       });
       setActiveTab("summary");
     } catch (error) {
@@ -389,20 +443,26 @@ export default function App() {
           const due = task.dueDate ? ` · Due signal: ${task.dueDate}` : "";
           const owner = task.owner ? ` · Assigned to: ${task.owner}` : " · Assignment not explicit";
           const confidence = typeof task.confidence === "number" ? ` · Confidence: ${Math.round(task.confidence * 100)}%` : "";
-          return `- [${taskStates[task.id] ? "x" : " "}] **${task.urgency}** — ${task.text}${due}${owner}${confidence}`;
+          const evidence = task.sourceEvidence?.quote
+            ? `\n  - Exact source span (${sourceReferenceLabel(task)}): ${task.sourceEvidence.quote}`
+            : `\n  - ${sourceReferenceLabel(task)}${task.evidence ? `; model-provided excerpt (unverified): ${task.evidence}` : ""}`;
+          return `- [${taskStates[task.id] ? "x" : " "}] **${task.urgency}** — ${task.text}${due}${owner}${confidence}${evidence}`;
         })
       : ["- No action items were extracted."];
     const urgentLines = analysis.urgentRows.length
-      ? analysis.urgentRows.map((row) => `> ${row.text}${row.reason ? ` — ${row.reason}` : ""}`)
+      ? analysis.urgentRows.map((row) => `> ${row.text}${row.reason ? ` — ${row.reason}` : ""}\n> ${sourceReferenceLabel(row)}${row.sourceEvidence?.quote ? ` · Exact source: ${row.sourceEvidence.quote}` : ""}`)
       : ["> No high-urgency rows were extracted."];
     const mentionLines = analysis.mentions.length
-      ? analysis.mentions.map((mention) => `- **@${mention.handle}** — ${mention.line}`)
+      ? analysis.mentions.map((mention) => `- **@${mention.handle}** — ${mention.line}\n  - ${sourceReferenceLabel(mention)}${mention.sourceEvidence?.quote ? ` · Exact source: ${mention.sourceEvidence.quote}` : ""}`)
       : ["- No direct mentions were extracted."];
     const deadlineLines = analysis.deadlines.length
-      ? analysis.deadlines.map((deadline) => `- **${deadline.dates.join(", ") || "Time reference"}** — ${deadline.text}`)
+      ? analysis.deadlines.map((deadline) => `- **${deadline.dates.join(", ") || "Time reference"}** — ${deadline.text}\n  - ${sourceReferenceLabel(deadline)}${deadline.sourceEvidence?.quote ? ` · Exact source: ${deadline.sourceEvidence.quote}` : ""}`)
       : ["- No deadline signals were extracted."];
     const decisionLines = analysis.decisions.length
-      ? analysis.decisions.map((decision) => `- ${decision}`)
+      ? analysis.decisions.map((decision) => {
+          const finding = analysis.decisionFindings?.find((item) => item.text === decision);
+          return `- ${decision}\n  - ${sourceReferenceLabel(finding)}`;
+        })
       : ["- No decisions were extracted."];
 
     const markdown = [
@@ -410,8 +470,10 @@ export default function App() {
       "",
       `- **Generated:** ${generatedAt}`,
       `- **Source:** ${loadedFileName || "Pasted conversation"}`,
-      `- **Model:** ${MODEL_ID}`,
-      "- **Processing:** On-device WebGPU inference; chat content is not sent to an AI API",
+      `- **Model:** ${analysis.modelId || MODEL_ID}`,
+      `- **Processing:** ${analysis.analysisMode === "rules-only" ? "Local deterministic rules only; limited pattern coverage" : "On-device WebGPU inference combined with local rules"}; chat content is not sent to a hosted AI API`,
+      `- **Source structure:** ${analysis.sourceBoundaryMode === "opaque" ? "One opaque source message; author/timestamp unknown; reduced message-level granularity" : `${analysis.sourceMessageCount} recognized source records`}`,
+      "- **Evidence semantics:** Valid source references confirm the exact source location and quotation only; semantic support is unverified.",
       "",
       "## Executive Summary",
       "",
@@ -446,7 +508,9 @@ export default function App() {
       ...decisionLines,
       "",
       "---",
-      "Generated by Unread Radar AI using a language model running locally in the browser. AI extraction may be wrong; verify important items against the source.",
+      analysis.analysisMode === "rules-only"
+        ? "Generated by Unread Radar AI using deterministic local rules only. Pattern coverage is limited; verify every finding against the source."
+        : "Generated by Unread Radar AI using a language model running locally in the browser plus local rules. AI extraction may be wrong; verify important items against the source.",
       "",
     ].join("\n");
 
@@ -477,7 +541,7 @@ export default function App() {
       ...analysis.summary.map((item) => `• ${item}`),
       "",
       "ACTION ITEMS",
-      ...analysis.actions.map((item) => `• [${taskStates[item.id] ? "x" : " "}] [${item.urgency}] ${item.text}`),
+      ...analysis.actions.map((item) => `• [${taskStates[item.id] ? "x" : " "}] [${item.urgency}] ${item.text} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`),
       "",
       "DECISIONS",
       ...analysis.decisions.map((item) => `• ${item}`),
@@ -528,7 +592,7 @@ export default function App() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="green"><ShieldCheck size={14} aria-hidden="true" /> Chat stays on device</Badge>
-            <Badge tone={modelState.state === "ready" ? "green" : modelState.state === "error" ? "red" : "blue"}><Cpu size={14} aria-hidden="true" /> {modelState.state === "ready" ? "Local model ready" : modelState.state === "loading" ? "Loading model" : modelState.state === "error" ? "Model needs attention" : "Local model not loaded"}</Badge>
+            <Badge tone={modelState.state === "ready" ? "green" : modelState.state === "error" ? "red" : modelState.state === "rules-only" ? "amber" : "blue"}><Cpu size={14} aria-hidden="true" /> {modelState.state === "ready" ? "Local model ready" : modelState.state === "loading" ? "Loading model" : modelState.state === "error" ? "Model needs attention" : modelState.state === "rules-only" ? "Rules-only fallback active" : "Local model not loaded"}</Badge>
           </div>
         </header>
 
@@ -550,7 +614,7 @@ export default function App() {
                 <div className="min-w-0 flex-1">
                   <h2 className="font-bold text-white">On-device model</h2>
                   <p className="mt-1 break-all text-xs leading-5 text-slate-400">{MODEL_ID}</p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={runtimeSupport.supported ? "green" : "red"}>{runtimeSupport.supported ? "WebGPU available" : "WebGPU unavailable"}</Badge><Badge tone="slate">No chat API</Badge></div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={runtimeSupport.supported ? "green" : "red"}>{runtimeSupport.supported ? "WebGPU API present" : "Rules-only fallback available"}</Badge><Badge tone="slate">No chat API</Badge></div>
                 </div>
               </div>
               {modelState.state === "loading" && <div className="mt-4"><div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-400"><span>{modelState.message}</span><span className="tabular-nums">{modelState.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-400 transition-[width] duration-300" style={{ width: `${modelState.progress}%` }} /></div></div>}
@@ -561,7 +625,7 @@ export default function App() {
           <section className="grid gap-6 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
             <div className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
-                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log. No sample conversations are preloaded.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">For faster repeats, up to three analysis results are cached in this tab session. The original chat is not stored in that cache, but results may quote chat text; close this tab to clear the session cache.</p></div>
+                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log. No sample conversations are preloaded.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Raw conversation text, source snapshots, excerpts, and findings remain memory-only. Up to three analysis results may be cached in memory until cleared or the page is closed. Unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
                 <Badge tone="green"><LockKeyhole size={12} /> Local</Badge>
               </div>
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
@@ -572,13 +636,15 @@ export default function App() {
               <label htmlFor="chat-log" className="mb-2 block text-sm font-semibold text-slate-200">Chat log</label>
               <textarea id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
-              <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing || !runtimeSupport.supported} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
+              <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
-                {isAnalyzing ? "Analyzing locally…" : hasAnalysis ? "Analyze again" : modelState.state === "ready" ? "Analyze with local AI" : "Load model & analyze locally"}
+                {isAnalyzing ? "Analyzing locally…" : modelState.state === "rules-only" ? "Run rules-only analysis" : hasAnalysis ? "Analyze again" : modelState.state === "ready" ? "Analyze with local AI" : "Analyze locally"}
               </button>
-              {hasAnalysis && !isAnalyzing && <button type="button" onClick={() => runAnalysis({ forceFresh: true })} disabled={!chatText.trim() || !runtimeSupport.supported} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">Run fresh analysis (skip cache)</button>}
-              {analysisStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2.5 text-xs leading-5", analysisStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : analysisStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : "bg-cyan-300/10 text-cyan-100")} role={analysisStatus.type === "error" ? "alert" : "status"} aria-live="polite">{analysisStatus.message}</p>}
-              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">The first run downloads model weights. Inference runs on this device; conversation contents are not posted to a cloud AI endpoint. Model downloading requires an internet connection the first time.</p></div></div></div>
+              {hasAnalysis && !isAnalyzing && <button type="button" onClick={() => runAnalysis({ forceFresh: true })} disabled={!chatText.trim()} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">Run fresh analysis (skip cache)</button>}
+              {analysisStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2.5 text-xs leading-5", analysisStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : analysisStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : analysisStatus.type === "warning" ? "bg-amber-300/10 text-amber-100" : "bg-cyan-300/10 text-cyan-100")} role={analysisStatus.type === "error" ? "alert" : "status"} aria-live="polite">{analysisStatus.message}</p>}
+              {legacyCacheStatus.message && <p className={cx("mt-2 rounded-lg px-3 py-2 text-xs leading-5", legacyCacheStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={legacyCacheStatus.type === "error" ? "alert" : "status"}>{legacyCacheStatus.message}</p>}
+              {hasAnalysis && sourceSnapshot && <p className="mt-2 rounded-lg border border-slate-700/60 bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">Source snapshot: {sourceSnapshot.messages.length} {sourceSnapshot.messages.length === 1 ? "message" : "messages"} · {sourceSnapshot.boundaryMode === "opaque" ? "Opaque import; reduced message-level granularity; author and timestamp unknown" : "Recognized source records; original order preserved"}.</p>}
+              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">When WebGPU is available, the first model run downloads model weights and performs inference on this device. If WebGPU adapter/device setup fails, rules-only mode uses local patterns instead. Conversation contents are not posted to a cloud AI endpoint.</p></div></div></div>
             </div>
 
             <div className="min-w-0 space-y-5">
@@ -591,28 +657,28 @@ export default function App() {
               </section>
 
               <section className="overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/45 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl">
-                <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Summary items quote source-backed findings to reduce speaker and task-owner mix-ups. Review important details against the original chat." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
+                <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Summary items are derived from deterministic local checks. Exact source-reference validity is tracked separately from whether an interpretation is correct." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
                   <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[10px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-xl border border-indigo-300/15 bg-gradient-to-br from-indigo-500/10 to-cyan-400/[0.04] p-4"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Source-grounded summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge></div><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No source-grounded summary items were found.</p>}</div>
-                    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
-                      <div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-xl border border-indigo-300/15 bg-gradient-to-br from-indigo-500/10 to-cyan-400/[0.04] p-4"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Rule-based summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge></div><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-[11px] leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
+                      <div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}
 
                   {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run local AI analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option>All</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div></div>
-                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const done = Boolean(taskStates[task.id]); return <label key={task.id} className={cx("flex cursor-pointer gap-3 rounded-xl border p-3.5 transition", done ? "border-emerald-300/20 bg-emerald-400/[0.05]" : "border-slate-700/60 bg-slate-950/30 hover:border-indigo-300/30 hover:bg-slate-950/55")}><input type="checkbox" checked={done} onChange={() => toggleTask(task.id)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-900 text-indigo-400 focus:ring-indigo-400" /><span className="min-w-0 flex-1"><span className={cx("block text-sm leading-6", done ? "text-slate-500 line-through" : "text-slate-200")}>{task.text}</span><span className="mt-2 flex flex-wrap items-center gap-2"><Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge><span className="text-[11px] text-slate-400">{task.owner ? `Assignment: ${task.owner}` : "Assignment not explicit"}</span>{task.dueDate && <span className="text-[11px] text-cyan-200">Due signal: {task.dueDate}</span>}{typeof task.confidence === "number" && <span className="text-[11px] text-slate-500">Model confidence {Math.round(task.confidence * 100)}%</span>}</span>{task.evidence && <span className="mt-2 block text-[11px] leading-5 text-slate-500">Evidence: {task.evidence}</span>}</span>{done && <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-200"><Check size={12} strokeWidth={3} aria-hidden="true" /></span>}</label>; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
+                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const done = Boolean(taskStates[task.id]); return <label key={task.id} className={cx("flex cursor-pointer gap-3 rounded-xl border p-3.5 transition", done ? "border-emerald-300/20 bg-emerald-400/[0.05]" : "border-slate-700/60 bg-slate-950/30 hover:border-indigo-300/30 hover:bg-slate-950/55")}><input type="checkbox" checked={done} onChange={() => toggleTask(task.id)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-900 text-indigo-400 focus:ring-indigo-400" /><span className="min-w-0 flex-1"><span className={cx("block text-sm leading-6", done ? "text-slate-500 line-through" : "text-slate-200")}>{task.text}</span><span className="mt-2 flex flex-wrap items-center gap-2"><Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge><span className="text-[11px] text-slate-400">{task.owner ? `Assignment: ${task.owner}` : "Assignment not explicit"}</span>{task.dueDate && <span className="text-[11px] text-cyan-200">Due signal: {task.dueDate}</span>}{typeof task.confidence === "number" && <span className="text-[11px] text-slate-500">Model confidence {Math.round(task.confidence * 100)}%</span>}<span className="text-[11px] text-slate-500">{task.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</span></span>{task.sourceEvidence?.quote ? <span className="mt-2 block text-[11px] leading-5 text-slate-500">Exact source span: {task.sourceEvidence.quote}</span> : task.evidence && <span className="mt-2 block text-[11px] leading-5 text-slate-500">Model-provided excerpt (unverified): {task.evidence}</span>}</span>{done && <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-200"><Check size={12} strokeWidth={3} aria-hidden="true" /></span>}</label>; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
                     {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{completedCount} of {analysis.actions.length} tasks checked complete. Checklist state lasts for this page session.</p>}</>}</div>}
 
                   {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Urgency matrix is waiting" description="Run local AI analysis to classify messages and display priority signals." /> : <><div className="grid grid-cols-3 gap-2">{[{ name: "High", count: analysis.alerts.filter((item) => item.urgency === "High").length, tone: "red", icon: ArrowUpRight, note: "Review first" }, { name: "Medium", count: analysis.alerts.filter((item) => item.urgency === "Medium").length, tone: "amber", icon: Activity, note: "Plan next" }, { name: "Low", count: analysis.alerts.filter((item) => item.urgency === "Low").length, tone: "slate", icon: ArrowDownRight, note: "Keep in view" }].map((group) => { const Icon = group.icon; return <div key={group.name} className={cx("rounded-xl border p-3", group.tone === "red" ? "border-rose-300/20 bg-rose-400/[0.06]" : group.tone === "amber" ? "border-amber-300/20 bg-amber-300/[0.05]" : "border-slate-700/60 bg-slate-950/35")}><div className="flex items-center justify-between gap-1"><p className={cx("text-xs font-bold", group.tone === "red" ? "text-rose-200" : group.tone === "amber" ? "text-amber-200" : "text-slate-300")}>{group.name}</p><Icon size={14} aria-hidden="true" /></div><p className="mt-2 text-2xl font-extrabold tabular-nums text-white">{group.count}</p><p className="mt-1 text-[10px] text-slate-400">{group.note}</p></div>; })}</div>
-                    {analysis.alerts.length ? <div className="space-y-4">{["High", "Medium", "Low"].map((level) => { const items = analysis.alerts.filter((item) => item.urgency === level); if (!items.length) return null; return <div key={level}><div className="mb-2 flex items-center gap-2"><span className={cx("h-2 w-2 rounded-full", level === "High" ? "bg-rose-400" : level === "Medium" ? "bg-amber-300" : "bg-slate-400")} /><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">{level} priority</h3><span className="text-xs text-slate-500">{items.length}</span></div><div className="space-y-2">{items.slice(0, 8).map((item) => <div key={`${item.kind}-${item.id}`} className="flex gap-3 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3"><div className={cx("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", level === "High" ? "bg-rose-400/10 text-rose-200" : level === "Medium" ? "bg-amber-300/10 text-amber-200" : "bg-slate-800 text-slate-300")}>{item.kind === "Deadline" ? <Clock3 size={15} /> : item.kind === "Mention" ? <Hash size={15} /> : item.kind === "Urgent message" ? <AlertCircle size={15} /> : <ClipboardList size={15} />}</div><div className="min-w-0 flex-1"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{item.kind}</span>{item.owner && <span className="text-[10px] text-slate-500">· {item.owner}</span>}</div><p className="break-words text-xs leading-5 text-slate-200">{item.text}</p>{item.reason && <p className="mt-1 text-[11px] leading-5 text-slate-500">{item.reason}</p>}</div></div>)}</div></div>; })}</div> : <EmptyState icon={Target} title="No alert signals returned" description="The local model did not return any classified tasks, deadlines, mentions, or urgent rows." />}
+                    {analysis.alerts.length ? <div className="space-y-4">{["High", "Medium", "Low"].map((level) => { const items = analysis.alerts.filter((item) => item.urgency === level); if (!items.length) return null; return <div key={level}><div className="mb-2 flex items-center gap-2"><span className={cx("h-2 w-2 rounded-full", level === "High" ? "bg-rose-400" : level === "Medium" ? "bg-amber-300" : "bg-slate-400")} /><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">{level} priority</h3><span className="text-xs text-slate-500">{items.length}</span></div><div className="space-y-2">{items.slice(0, 8).map((item) => <div key={`${item.kind}-${item.id}`} className="flex gap-3 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3"><div className={cx("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", level === "High" ? "bg-rose-400/10 text-rose-200" : level === "Medium" ? "bg-amber-300/10 text-amber-200" : "bg-slate-800 text-slate-300")}>{item.kind === "Deadline" ? <Clock3 size={15} /> : item.kind === "Mention" ? <Hash size={15} /> : item.kind === "Urgent message" ? <AlertCircle size={15} /> : <ClipboardList size={15} />}</div><div className="min-w-0 flex-1"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{item.kind}</span>{item.owner && <span className="text-[10px] text-slate-500">· {item.owner}</span>}</div><p className="break-words text-xs leading-5 text-slate-200">{item.text}</p>{item.reason && <p className="mt-1 text-[11px] leading-5 text-slate-500">{item.reason}</p>}<p className="mt-1 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></div></div>)}</div></div>; })}</div> : <EmptyState icon={Target} title="No alert signals returned" description="The local model did not return any classified tasks, deadlines, mentions, or urgent rows." />}
                   </>}</div>}
                 </div>
               </section>
             </div>
           </section>
 
-          <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU local inference · Model weights fetched on first use</p></footer>
+          <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU inference when available · Rules-only fallback otherwise</p></footer>
         </main>
       </div>
     </div>

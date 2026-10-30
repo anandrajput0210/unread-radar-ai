@@ -1,6 +1,8 @@
 import { combineAnalysisChunks, normalizeModelChunk } from "./analysisSchema.js";
 import { analyzeConversations as analyzeWithRules, urgencyFor } from "./conversationParser.js";
 import { buildSourceGroundedSummary } from "./sourceGroundedSummary.js";
+import { createEvidenceReference } from "./evidenceValidation.js";
+import { createSourceSnapshot } from "./sourceSnapshot.js";
 
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 export const MAX_ANALYSIS_CHARACTERS = 60000;
@@ -9,57 +11,79 @@ const MAX_OUTPUT_TOKENS = 1600;
 
 let enginePromise = null;
 
-// Cache the last three exact inputs for this browser session. This avoids
-// running the model again when the user clicks Analyze twice on the same chat.
 const ANALYSIS_CACHE_LIMIT = 3;
+const LEGACY_SESSION_CACHE_KEY = "unread-radar-ai:analysis-results:v2";
 const analysisCache = new Map();
-const SESSION_CACHE_KEY = "unread-radar-ai:analysis-results:v2";
+let analysisGeneration = 0;
 
 function cloneResult(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-async function createSessionCacheKey(text) {
-  // Hash the input instead of storing the original conversation text.
-  // Only analysis results are kept in sessionStorage, for this tab session.
+/** Invalidates pending result writes and clears all in-memory conversation results. */
+export function invalidateAnalysisWork() {
+  analysisGeneration += 1;
+  analysisCache.clear();
+  return analysisGeneration;
+}
+
+export function isAnalysisGenerationCurrent(generation) {
+  return generation === analysisGeneration;
+}
+
+/** Removes only the one application-owned legacy sessionStorage entry. */
+export function clearLegacySessionCache() {
+  if (typeof window === "undefined") {
+    return { success: true, removed: false, reason: "No browser session storage exists in this environment." };
+  }
   try {
-    if (!globalThis.crypto?.subtle || typeof TextEncoder === "undefined") return null;
-    const bytes = new TextEncoder().encode(`${MODEL_ID}\n${text}`);
-    const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  } catch {
-    return null;
+    const storage = window.sessionStorage;
+    const existed = storage.getItem(LEGACY_SESSION_CACHE_KEY) !== null;
+    if (existed) storage.removeItem(LEGACY_SESSION_CACHE_KEY);
+    return { success: true, removed: existed };
+  } catch (error) {
+    return {
+      success: false,
+      removed: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
-function readSessionCachedResult(key) {
-  if (!key || typeof window === "undefined") return null;
-  try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(SESSION_CACHE_KEY) || "null");
-    if (parsed?.version !== 2 || !Array.isArray(parsed.entries)) return null;
-    const match = parsed.entries.find((entry) => Array.isArray(entry) && entry[0] === key);
-    const result = match?.[1];
-    const requiredArrays = ["summary", "actions", "decisions", "deadlines", "mentions", "urgentRows", "alerts"];
-    if (!result || typeof result !== "object" || requiredArrays.some((field) => !Array.isArray(result[field]))) return null;
-    if (result.modelId && result.modelId !== MODEL_ID) return null;
-    return result;
-  } catch {
-    return null;
+function cacheResult(text, result, generation) {
+  if (!isAnalysisGenerationCurrent(generation)) return false;
+  analysisCache.set(text, cloneResult(result));
+  while (analysisCache.size > ANALYSIS_CACHE_LIMIT) {
+    analysisCache.delete(analysisCache.keys().next().value);
   }
+  return true;
 }
 
-function writeSessionCachedResult(key, result) {
-  if (!key || typeof window === "undefined") return;
-  try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(SESSION_CACHE_KEY) || "null");
-    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
-    const nextEntries = entries.filter((entry) => Array.isArray(entry) && entry[0] !== key);
-    nextEntries.push([key, cloneResult(result)]);
-    while (nextEntries.length > ANALYSIS_CACHE_LIMIT) nextEntries.shift();
-    window.sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ version: 2, entries: nextEntries }));
-  } catch {
-    // Storage is optional. Analysis must continue even when sessionStorage is unavailable or full.
-  }
+function cacheHit(text) {
+  if (!analysisCache.has(text)) return null;
+  const cached = analysisCache.get(text);
+  analysisCache.delete(text);
+  analysisCache.set(text, cached);
+  return cloneResult(cached);
+}
+
+function addSourceEvidence(finding, snapshot, span) {
+  const evidence = createEvidenceReference(snapshot, span);
+  return {
+    ...finding,
+    sourceEvidence: evidence.reference,
+    sourceReferenceStatus: evidence.status,
+    // A valid quotation proves reference integrity, never semantic support.
+    semanticStatus: "unverified",
+  };
+}
+
+function evidenceForMatchingFindings(findings, ruleFindings, keyFn, snapshot) {
+  const ruleIndex = new Map(ruleFindings.map((finding) => [keyFn(finding), finding]));
+  return findings.map((finding) => {
+    const match = ruleIndex.get(keyFn(finding));
+    return addSourceEvidence(finding, snapshot, finding.sourceSpan || match?.sourceSpan);
+  });
 }
 
 function uniqueBy(items, keyFn) {
@@ -72,7 +96,7 @@ function uniqueBy(items, keyFn) {
   });
 }
 
-function mergeRuleFindings(rawText, modelAnalysis) {
+function mergeRuleFindings(rawText, modelAnalysis, sourceSnapshot) {
   const rules = analyzeWithRules(rawText);
   const dueDateFor = (line) => {
     const deadline = rules.deadlines.find(
@@ -81,67 +105,77 @@ function mergeRuleFindings(rawText, modelAnalysis) {
     return deadline?.dates?.join(", ") || null;
   };
 
-  const actions = uniqueBy(
-    [
-      ...modelAnalysis.actions,
-      ...rules.actions.map((item, index) => ({
-        id: item.id || `rule-task-${index}`,
-        text: item.text,
-        owner: item.owner || null,
-        dueDate: dueDateFor(item.text),
-        urgency: item.urgency || urgencyFor(item.text),
-        evidence: item.text,
-        confidence: 0.72,
-        completed: false,
-      })),
-    ],
+  const ruleActions = rules.actions.map((item, index) => ({
+    id: item.id || `rule-task-${index}`,
+    text: item.text,
+    owner: item.owner || null,
+    dueDate: dueDateFor(item.text),
+    urgency: item.urgency || urgencyFor(item.text),
+    evidence: item.text,
+    confidence: 0.72,
+    completed: false,
+    sourceSpan: item.sourceSpan,
+  }));
+  const mergedActions = uniqueBy([...modelAnalysis.actions, ...ruleActions], (item) => item.text);
+  const actions = evidenceForMatchingFindings(
+    mergedActions,
+    ruleActions,
     (item) => item.text,
+    sourceSnapshot,
   );
 
-  const decisions = uniqueBy(
-    [...modelAnalysis.decisions, ...rules.decisions],
-    (item) => item,
-  );
+  const decisions = uniqueBy([...modelAnalysis.decisions, ...rules.decisions], (item) => item);
+  const decisionRuleFindings = (rules.decisionEvidence || []).map((item) => ({
+    text: item.text,
+    ...addSourceEvidence({ text: item.text }, sourceSnapshot, item.sourceSpan),
+  }));
+  const decisionFindings = decisions.map((text) => {
+    const matchedRule = decisionRuleFindings.find((item) => item.text === text);
+    return matchedRule || addSourceEvidence({ text }, sourceSnapshot, null);
+  });
 
-  const deadlines = uniqueBy(
-    [
-      ...modelAnalysis.deadlines,
-      ...rules.deadlines.map((item, index) => ({
-        id: item.id || `rule-deadline-${index}`,
-        text: item.text,
-        dates: item.dates || [],
-        urgency: item.urgency || urgencyFor(item.text),
-        confidence: 0.72,
-      })),
-    ],
+  const ruleDeadlines = rules.deadlines.map((item, index) => ({
+    id: item.id || `rule-deadline-${index}`,
+    text: item.text,
+    dates: item.dates || [],
+    urgency: item.urgency || urgencyFor(item.text),
+    confidence: 0.72,
+    sourceSpan: item.sourceSpan,
+  }));
+  const deadlines = evidenceForMatchingFindings(
+    uniqueBy([...modelAnalysis.deadlines, ...ruleDeadlines], (item) => `${item.text}|${(item.dates || []).join(",")}`),
+    ruleDeadlines,
     (item) => `${item.text}|${(item.dates || []).join(",")}`,
+    sourceSnapshot,
   );
 
-  const mentions = uniqueBy(
-    [
-      ...modelAnalysis.mentions,
-      ...rules.mentions.map((item) => ({
-        handle: item.handle,
-        line: item.line,
-        urgency: urgencyFor(item.line),
-        confidence: 0.9,
-      })),
-    ],
+  const ruleMentions = rules.mentions.map((item) => ({
+    handle: item.handle,
+    line: item.line,
+    urgency: urgencyFor(item.line),
+    confidence: 0.9,
+    sourceSpan: item.sourceSpan,
+  }));
+  const mentions = evidenceForMatchingFindings(
+    uniqueBy([...modelAnalysis.mentions, ...ruleMentions], (item) => `${item.handle}|${item.line}`),
+    ruleMentions,
     (item) => `${item.handle}|${item.line}`,
+    sourceSnapshot,
   );
 
-  const urgentRows = uniqueBy(
-    [
-      ...modelAnalysis.urgentRows,
-      ...rules.urgentRows.map((line, index) => ({
-        id: `rule-urgent-${index}`,
-        text: line,
-        reason: "Local urgency rule matched; review the surrounding context.",
-        urgency: "High",
-        confidence: 0.65,
-      })),
-    ],
+  const ruleUrgentRows = (rules.urgentRowEvidence || []).map((item, index) => ({
+    id: `rule-urgent-${index}`,
+    text: item.text,
+    reason: "Local urgency rule matched; review the surrounding context.",
+    urgency: "High",
+    confidence: 0.65,
+    sourceSpan: item.sourceSpan,
+  }));
+  const urgentRows = evidenceForMatchingFindings(
+    uniqueBy([...modelAnalysis.urgentRows, ...ruleUrgentRows], (item) => item.text),
+    ruleUrgentRows,
     (item) => item.text,
+    sourceSnapshot,
   );
 
   const alerts = uniqueBy(
@@ -154,21 +188,39 @@ function mergeRuleFindings(rawText, modelAnalysis) {
         owner: null,
         urgency: item.urgency,
         kind: "Mention",
+        sourceEvidence: item.sourceEvidence,
+        sourceReferenceStatus: item.sourceReferenceStatus,
+        semanticStatus: item.semanticStatus,
       })),
       ...urgentRows.map((item) => ({ ...item, kind: "Urgent message" })),
     ],
     (item) => `${item.kind}|${item.text}`,
   );
 
+  const summaryEvidence = [
+    ...actions,
+    ...decisionFindings,
+    ...deadlines,
+    ...mentions,
+    ...urgentRows,
+  ].filter((item) => item.sourceEvidence);
+
   return {
     ...modelAnalysis,
-    summary: buildSourceGroundedSummary(rules),
+    summary: buildSourceGroundedSummary(rules, sourceSnapshot),
     actions,
     decisions,
+    decisionFindings,
     deadlines,
     mentions,
     urgentRows,
     alerts,
+    summaryEvidence,
+    sourceSnapshotId: sourceSnapshot.snapshotId,
+    sourceBoundaryMode: sourceSnapshot.boundaryMode,
+    sourceMessageCount: sourceSnapshot.messages.length,
+    messageGranularity: sourceSnapshot.messageGranularity,
+    analysisMode: modelAnalysis.analysisMode || "webgpu-model-plus-rules",
   };
 }
 
@@ -244,13 +296,39 @@ export function checkLocalModelSupport() {
   if (typeof window === "undefined" || typeof navigator === "undefined") {
     return { supported: false, reason: "Local model support can only be checked in a browser." };
   }
-  if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+  if (!window.isSecureContext && globalThis.location?.hostname !== "localhost" && globalThis.location?.hostname !== "127.0.0.1") {
     return { supported: false, reason: "WebGPU requires a secure context. Open the HTTPS deployment or localhost." };
   }
-  if (!("gpu" in navigator) || !navigator.gpu) {
-    return { supported: false, reason: "This browser/device does not expose WebGPU. Use an up-to-date Chrome or Edge browser with hardware acceleration enabled." };
+  if (typeof navigator.gpu?.requestAdapter !== "function") {
+    return { supported: false, reason: "This browser/device does not expose the WebGPU adapter API." };
   }
-  return { supported: true, reason: "WebGPU is available for local inference." };
+  return { supported: true, reason: "WebGPU API is present; adapter/device compatibility has not yet been checked." };
+}
+
+/** A narrow adapter/device check; it does not load WebLLM or download model assets. */
+export async function checkWebGPUCompatibility(gpu = globalThis.navigator?.gpu) {
+  if (!gpu || typeof gpu.requestAdapter !== "function") {
+    return { supported: false, reason: "WebGPU adapter API is unavailable." };
+  }
+  let device = null;
+  try {
+    const adapter = await gpu.requestAdapter();
+    if (!adapter || typeof adapter.requestDevice !== "function") {
+      return { supported: false, reason: "No usable WebGPU adapter was returned." };
+    }
+    device = await adapter.requestDevice();
+    if (!device) {
+      return { supported: false, reason: "The WebGPU adapter could not create a device." };
+    }
+    return { supported: true, reason: "A WebGPU adapter and device are available." };
+  } catch (error) {
+    return {
+      supported: false,
+      reason: `WebGPU adapter/device initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  } finally {
+    try { device?.destroy?.(); } catch { /* Device cleanup is best-effort and does not affect the result. */ }
+  }
 }
 
 export async function loadLocalModel(onProgress = () => {}) {
@@ -349,54 +427,73 @@ async function analyzeChunk(engine, chunk, index, total, onProgress) {
   return normalizeModelChunk(parsed, index);
 }
 
+function emptyModelAnalysis(modelId = "rules-only") {
+  return {
+    summary: [], actions: [], decisions: [], deadlines: [], mentions: [],
+    urgentRows: [], alerts: [], lineCount: 0, sourceChunks: 0, modelId,
+    analysisMode: modelId === "rules-only" ? "rules-only" : "webgpu-model-plus-rules",
+  };
+}
+
+export async function analyzeTextWithRules(rawText, options = {}) {
+  const text = typeof rawText === "string" ? rawText : "";
+  if (!text.trim()) throw new Error("Paste or upload a conversation before analyzing it.");
+  if (text.length > MAX_ANALYSIS_CHARACTERS) {
+    throw new Error(`Input exceeds the ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} character interactive-analysis limit. Split the log into smaller parts and retry.`);
+  }
+  const sourceSnapshot = options.sourceSnapshot || await createSourceSnapshot(text);
+  const rules = analyzeWithRules(text);
+  const base = emptyModelAnalysis();
+  const enriched = mergeRuleFindings(text, { ...base, lineCount: rules.lineCount }, sourceSnapshot);
+  enriched.modelId = "rules-only";
+  enriched.analysisMode = "rules-only";
+  enriched.sourceChunks = 0;
+  if (!enriched.summary.length) {
+    enriched.summary = ["Rules-only mode found no clear action, decision, deadline, mention, or urgency signals. This is a limited pattern-based result, not an AI analysis."];
+  }
+  return enriched;
+}
+
 export async function analyzeTextLocally(rawText, onProgress = () => {}, options = {}) {
   const forceFresh = options?.forceFresh === true;
-  const text = typeof rawText === "string" ? rawText.trim() : "";
-  if (!text) throw new Error("Paste or upload a conversation before analyzing it.");
+  const text = typeof rawText === "string" ? rawText : "";
+  if (!text.trim()) throw new Error("Paste or upload a conversation before analyzing it.");
   if (text.length > MAX_ANALYSIS_CHARACTERS) {
     throw new Error(`Input exceeds the ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} character interactive-analysis limit. Split the log into smaller parts and retry.`);
   }
 
-  if (!forceFresh && analysisCache.has(text)) {
-    const cached = analysisCache.get(text);
-    analysisCache.delete(text);
-    analysisCache.set(text, cached);
-    onProgress({ stage: "analysis", progress: 1, cached: true, message: "Reusing in-memory results for this exact conversation" });
-    return cloneResult(cached);
-  }
+  const generation = analysisGeneration;
+  const sourceSnapshot = options.sourceSnapshot || await createSourceSnapshot(text);
+  if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
 
-  const cacheKey = await createSessionCacheKey(text);
-  const sessionCached = forceFresh ? null : readSessionCachedResult(cacheKey);
-  if (sessionCached) {
-    analysisCache.set(text, cloneResult(sessionCached));
-    while (analysisCache.size > ANALYSIS_CACHE_LIMIT) {
-      analysisCache.delete(analysisCache.keys().next().value);
+  if (!forceFresh) {
+    const cached = cacheHit(text);
+    if (cached && cached.sourceSnapshotId === sourceSnapshot.snapshotId) {
+      onProgress({ stage: "analysis", progress: 1, cached: true, message: "Reusing in-memory results for this exact source snapshot" });
+      return cached;
     }
-    onProgress({ stage: "analysis", progress: 1, cached: true, message: "Reusing this tab's session-cached results for the exact conversation" });
-    return cloneResult(sessionCached);
   }
 
   const engine = await loadLocalModel(onProgress);
+  if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
   const chunks = splitIntoChunks(text);
   if (!chunks.length) throw new Error("No readable chat text was found.");
 
   const results = [];
   for (let index = 0; index < chunks.length; index += 1) {
+    if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
     const result = await analyzeChunk(engine, chunks[index], index, chunks.length, onProgress);
     results.push(result);
     onProgress({ stage: "analysis", progress: (index + 1) / chunks.length, message: `Processed segment ${index + 1} of ${chunks.length}` });
   }
 
+  if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
   const combined = combineAnalysisChunks(text, results, MODEL_ID);
-  const enriched = mergeRuleFindings(text, combined);
+  const enriched = mergeRuleFindings(text, combined, sourceSnapshot);
   if (!enriched.summary.length && !enriched.actions.length && !enriched.decisions.length && !enriched.deadlines.length && !enriched.mentions.length) {
     enriched.summary = ["The local model did not identify clear actions, decisions, deadlines, or direct mentions in this conversation."];
   }
 
-  analysisCache.set(text, cloneResult(enriched));
-  while (analysisCache.size > ANALYSIS_CACHE_LIMIT) {
-    analysisCache.delete(analysisCache.keys().next().value);
-  }
-  writeSessionCachedResult(cacheKey, enriched);
+  cacheResult(text, enriched, generation);
   return enriched;
 }

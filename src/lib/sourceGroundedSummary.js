@@ -1,7 +1,9 @@
-function cleanExcerpt(value, maxLength = 220) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+function exactExcerpt(item, snapshot, fallbackText) {
+  const span = item?.sourceSpan;
+  if (snapshot && Number.isSafeInteger(span?.startOffset) && Number.isSafeInteger(span?.endOffset)) {
+    return snapshot.rawText.slice(span.startOffset, span.endOffset);
+  }
+  return typeof fallbackText === "string" ? fallbackText : "";
 }
 
 function unique(values) {
@@ -15,55 +17,56 @@ function unique(values) {
 }
 
 /**
- * Creates a summary only from source-backed rule findings.
- * It intentionally does not use the language model's free-form summary,
- * because small models can swap speakers and assignees while paraphrasing.
- * Quoted excerpts retain the original speaker and addressee from the chat.
+ * Builds a concise summary from deterministic rule findings. When a snapshot
+ * is supplied, displayed excerpts are read from its exact source spans.
+ * This establishes source-reference integrity only, not semantic correctness.
  */
-export function buildSourceGroundedSummary(findings = {}) {
+export function buildSourceGroundedSummary(findings = {}, snapshot = null) {
   const actions = Array.isArray(findings.actions) ? findings.actions : [];
-  const decisions = Array.isArray(findings.decisions) ? findings.decisions : [];
+  const decisions = Array.isArray(findings.decisionEvidence) && findings.decisionEvidence.length
+    ? findings.decisionEvidence
+    : (Array.isArray(findings.decisions) ? findings.decisions : []);
   const deadlines = Array.isArray(findings.deadlines) ? findings.deadlines : [];
   const mentions = Array.isArray(findings.mentions) ? findings.mentions : [];
-  const urgentRows = Array.isArray(findings.urgentRows) ? findings.urgentRows : [];
+  const urgentRows = Array.isArray(findings.urgentRowEvidence) && findings.urgentRowEvidence.length
+    ? findings.urgentRowEvidence
+    : (Array.isArray(findings.urgentRows) ? findings.urgentRows : []);
   const summary = [];
 
   if (actions.length) {
-    summary.push(
-      `${actions.length} source-backed action candidate${actions.length === 1 ? "" : "s"} detected.`
-    );
+    summary.push(`${actions.length} rule-detected action candidate${actions.length === 1 ? "" : "s"}.`);
     actions.slice(0, 3).forEach((action) => {
-      const excerpt = cleanExcerpt(action?.text);
-      if (excerpt) summary.push(`Action evidence from the original chat: “${excerpt}”`);
+      const excerpt = exactExcerpt(action, snapshot, action?.text);
+      if (excerpt) summary.push(`Action-pattern line: “${excerpt}”`);
     });
   }
 
   decisions.slice(0, 2).forEach((decision) => {
-    const excerpt = cleanExcerpt(typeof decision === "string" ? decision : decision?.text);
-    if (excerpt) summary.push(`Decision recorded in the original chat: “${excerpt}”`);
+    const item = typeof decision === "string" ? { text: decision } : decision;
+    const excerpt = exactExcerpt(item, snapshot, item?.text);
+    if (excerpt) summary.push(`Decision-pattern line: “${excerpt}”`);
   });
 
   const timeReferences = unique(deadlines.flatMap((item) =>
     Array.isArray(item?.dates) ? item.dates.map((date) => String(date).trim()) : []
   )).slice(0, 4);
   if (timeReferences.length) {
-    summary.push(`Time references found in the source: ${timeReferences.join(", ")}.`);
+    summary.push(`Possible time references detected: ${timeReferences.join(", ")}.`);
   } else if (deadlines.length) {
-    summary.push(`${deadlines.length} source line${deadlines.length === 1 ? " contains" : "s contain"} a possible time reference; review the Deadlines and timing panel.`);
+    summary.push(`${deadlines.length} line${deadlines.length === 1 ? " contains" : "s contain"} a possible time reference; review the timing panel.`);
   }
 
   const handles = unique(mentions.map((mention) => `@${String(mention?.handle ?? "").replace(/^@+/, "")}`)).slice(0, 5);
-  if (handles.length) summary.push(`Direct mentions found in the source: ${handles.join(", ")}.`);
+  if (handles.length) summary.push(`Direct-mention patterns detected: ${handles.join(", ")}.`);
 
   urgentRows.slice(0, 2).forEach((row) => {
-    const value = typeof row === "string" ? row : row?.text;
-    const excerpt = cleanExcerpt(value);
-    if (excerpt) summary.push(`Urgency signal from the original chat: “${excerpt}”`);
+    const excerpt = exactExcerpt(row, snapshot, typeof row === "string" ? row : row?.text);
+    if (excerpt) summary.push(`Urgency-pattern line: “${excerpt}”`);
   });
 
   if (!summary.length) {
-    summary.push("No clear source-backed action, decision, deadline, mention, or urgency signal was found by the local rule checks.");
-    summary.push("Review the original conversation before treating this as a complete summary.");
+    summary.push("No clear action, decision, deadline, mention, or urgency patterns were detected by local rules.");
+    summary.push("Review the original conversation; pattern-based extraction is not exhaustive.");
   }
 
   return summary.slice(0, 8);

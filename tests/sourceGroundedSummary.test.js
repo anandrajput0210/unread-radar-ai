@@ -24,5 +24,15 @@ test("source-grounded summary handles an empty finding set", () => {
     actions: [], decisions: [], deadlines: [], mentions: [], urgentRows: [],
   });
   assert.equal(summary.length, 2);
-  assert.match(summary[0], /No clear source-backed action/);
+  assert.match(summary[0], /No clear action/);
+});
+
+test("uses exact source slices for summary excerpts and keeps semantic status unverified", async () => {
+  const { createSourceSnapshot } = await import("../src/lib/sourceSnapshot.js");
+  const rawText = "  Priya: Action item: send the report.  ";
+  const snapshot = await createSourceSnapshot(rawText);
+  const rules = analyzeConversations(rawText);
+  const summary = buildSourceGroundedSummary(rules, snapshot);
+  assert.ok(summary.some((line) => line.includes(`“${rawText}”`)));
+  assert.match(summary[0], /rule-detected action candidate/i);
 });
