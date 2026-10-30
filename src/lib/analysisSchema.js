@@ -56,6 +56,9 @@ function normalizeMention(item) {
     line,
     urgency: urgencyValue(item.urgency),
     confidence: confidenceValue(item.confidence),
+    sourceEvidence: null,
+    sourceReferenceStatus: "unverified",
+    semanticStatus: "unverified",
   };
 }
 
@@ -73,6 +76,9 @@ function normalizeAction(item, index, chunkIndex) {
     urgency: urgencyValue(item.urgency),
     evidence: textValue(item.evidence, 1000),
     confidence: confidenceValue(item.confidence),
+    sourceEvidence: null,
+    sourceReferenceStatus: "unverified",
+    semanticStatus: "unverified",
     completed: false,
   };
 }
@@ -90,6 +96,9 @@ function normalizeDeadline(item, index, chunkIndex) {
     dates: [...new Set(dates)],
     urgency: urgencyValue(item.urgency),
     confidence: confidenceValue(item.confidence),
+    sourceEvidence: null,
+    sourceReferenceStatus: "unverified",
+    semanticStatus: "unverified",
   };
 }
 
@@ -104,6 +113,9 @@ function normalizeUrgentRow(item, index, chunkIndex) {
     reason: textValue(value.reason, 1000),
     urgency: "High",
     confidence: confidenceValue(value.confidence),
+    sourceEvidence: null,
+    sourceReferenceStatus: "unverified",
+    semanticStatus: "unverified",
   };
 }
 

@@ -1,49 +1,82 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyzeTextLocally, MODEL_ID } from "../src/lib/localAiEngine.js";
+import {
+  analyzeTextWithRules,
+  clearLegacySessionCache,
+  invalidateAnalysisWork,
+  isAnalysisGenerationCurrent,
+} from "../src/lib/localAiEngine.js";
 
-function createMemoryStorage() {
-  const values = new Map();
+function createMemoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
   return {
     getItem(key) { return values.has(key) ? values.get(key) : null; },
     setItem(key, value) { values.set(key, String(value)); },
     removeItem(key) { values.delete(key); },
-    clear() { values.clear(); },
+    has(key) { return values.has(key); },
   };
 }
 
-test("reuses a session-cached result for the same exact conversation without loading WebGPU", async () => {
+test("removes only the application-owned legacy cache key and preserves unrelated storage", () => {
+  const storage = createMemoryStorage({
+    "unread-radar-ai:analysis-results:v2": "old-results",
+    "unrelated-preference": "keep-me",
+  });
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    writable: true,
-    value: { sessionStorage: createMemoryStorage() },
+    value: { sessionStorage: storage },
   });
 
-  const input = "Priya: @Anand please fix the login bug by 5 PM today.";
-  const keyBytes = new TextEncoder().encode(`${MODEL_ID}\n${input.trim()}`);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", keyBytes);
-  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const expected = {
-    summary: ["Cached result for test"],
-    actions: [],
-    decisions: [],
-    deadlines: [],
-    mentions: [],
-    urgentRows: [],
-    alerts: [],
-    sourceChunks: 1,
-    modelId: MODEL_ID,
-  };
+  const result = clearLegacySessionCache();
+  assert.deepEqual(result, { success: true, removed: true });
+  assert.equal(storage.has("unread-radar-ai:analysis-results:v2"), false);
+  assert.equal(storage.getItem("unrelated-preference"), "keep-me");
+  assert.deepEqual(clearLegacySessionCache(), { success: true, removed: false });
+});
 
-  window.sessionStorage.setItem(
-    "unread-radar-ai:analysis-results:v2",
-    JSON.stringify({ version: 2, entries: [[hash, expected]] }),
-  );
+test("reports access/removal errors instead of claiming legacy cleanup succeeded", () => {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      get sessionStorage() { throw new Error("storage blocked"); },
+    },
+  });
+  const result = clearLegacySessionCache();
+  assert.equal(result.success, false);
+  assert.match(result.error, /storage blocked/);
+});
 
-  const progressEvents = [];
-  const actual = await analyzeTextLocally(input, (event) => progressEvents.push(event));
+test("invalidating analysis advances the generation token and prevents old work being current", () => {
+  const oldGeneration = invalidateAnalysisWork();
+  assert.equal(isAnalysisGenerationCurrent(oldGeneration), true);
+  const newGeneration = invalidateAnalysisWork();
+  assert.equal(newGeneration, oldGeneration + 1);
+  assert.equal(isAnalysisGenerationCurrent(oldGeneration), false);
+  assert.equal(isAnalysisGenerationCurrent(newGeneration), true);
+});
 
-  assert.deepEqual(actual, expected);
-  assert.equal(progressEvents.some((event) => event.cached === true), true);
-  assert.match(progressEvents.at(-1).message, /session-cached results/i);
+test("rules-only fallback creates exact evidence references without touching sessionStorage", async () => {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { get sessionStorage() { throw new Error("must not access storage"); } },
+  });
+  const rawText = "Please send the final report by Friday.";
+  const result = await analyzeTextWithRules(rawText);
+  assert.equal(result.analysisMode, "rules-only");
+  assert.equal(result.modelId, "rules-only");
+  assert.equal(result.sourceBoundaryMode, "opaque");
+  assert.equal(result.sourceMessageCount, 1);
+  assert.equal(result.actions.length, 1);
+  assert.equal(result.actions[0].sourceReferenceStatus, "valid");
+  assert.equal(result.actions[0].semanticStatus, "unverified");
+  assert.equal(result.actions[0].sourceEvidence.quote, rawText);
+});
+
+test("rules-only fallback discloses opaque source granularity and keeps author unknown", async () => {
+  const rawText = "Maya: Please review the report.\nThis line has no recognizable speaker header.";
+  const result = await analyzeTextWithRules(rawText);
+  assert.equal(result.sourceBoundaryMode, "opaque");
+  assert.equal(result.messageGranularity, "single-source-message");
+  assert.equal(result.actions[0].sourceEvidence.quote, "Maya: Please review the report.");
+  assert.equal(result.actions[0].sourceEvidence.snapshotId, result.sourceSnapshotId);
 });

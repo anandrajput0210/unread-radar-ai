@@ -20,7 +20,11 @@ test("normalizes local model output without guessing missing owners", () => {
   assert.equal(result.actions.length, 1);
   assert.equal(result.actions[0].owner, null);
   assert.equal(result.actions[0].dueDate, "Friday");
+  assert.equal(result.actions[0].sourceReferenceStatus, "unverified");
+  assert.equal(result.actions[0].sourceEvidence, null);
+  assert.equal(result.actions[0].semanticStatus, "unverified");
   assert.equal(result.mentions[0].handle, "zoë");
+  assert.equal(result.mentions[0].sourceReferenceStatus, "unverified");
   assert.equal(result.deadlines[0].dates[0], "Friday");
 });
 

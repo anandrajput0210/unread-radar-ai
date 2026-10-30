@@ -130,3 +130,14 @@ test("does not treat a date in an explicit no-action statement as a deadline", (
   assert.match(result.deadlines[0].text, /fix the login bug/i);
   assert.equal(result.actions.some((item) => /redesign the dashboard/i.test(item.text)), false);
 });
+
+test("retains exact source spans for rule findings without trimming the source text", () => {
+  const input = "  Priya: Action item: send the final report by Friday.  \r\nOps: Critical outage is blocking checkout.";
+  const result = analyzeConversations(input);
+  const action = result.actions[0];
+  const exactLine = input.slice(action.sourceSpan.startOffset, action.sourceSpan.endOffset);
+  assert.equal(exactLine, "  Priya: Action item: send the final report by Friday.  ");
+  assert.equal(result.deadlines[0].sourceSpan.startOffset, input.indexOf("  Priya:"));
+  assert.equal(result.urgentRowEvidence[0].text, "Ops: Critical outage is blocking checkout.");
+  assert.equal(input.slice(result.urgentRowEvidence[0].sourceSpan.startOffset, result.urgentRowEvidence[0].sourceSpan.endOffset), result.urgentRowEvidence[0].text);
+});
