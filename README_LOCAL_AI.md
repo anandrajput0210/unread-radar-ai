@@ -5,7 +5,7 @@ This repository uses WebLLM to run Qwen 2.5 inference in the browser. It does no
 ## Setup
 
 ```powershell
-npm install
+npm ci
 npm test
 npm run build
 npm run dev
@@ -49,3 +49,8 @@ The summary is deterministic and source-grounded. When the status shows **Qwen i
 ## Priority view
 
 Priority counts are task-first. Signals with the same recognized source message as a task are shown as supporting context, not double-counted as separate priority items. Signals without a safe source-message link remain standalone.
+
+
+## Hosting
+
+For the static deployment layout, required response-header notes, and hosted Qwen smoke-test gate, see [DEPLOYMENT.md](./DEPLOYMENT.md).

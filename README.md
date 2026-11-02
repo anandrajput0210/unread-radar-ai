@@ -28,7 +28,7 @@ Unread Radar AI is a privacy-first conversation triage web app built with React,
 Requirements: a recent Node.js release and a current Chrome/Edge browser with WebGPU available. The first model initialization downloads model assets, so it requires network access; later use may benefit from browser caching.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -39,6 +39,12 @@ npm test
 npm run build
 npm run preview
 ```
+
+## Production deployment
+
+This is a static Vite frontend. The current application does not require an application backend, database, hosted model endpoint, or API key. Use the repository root as the project root, install with `npm ci`, build with `npm run build`, and serve the generated `dist/` directory. Do not add a placeholder backend or replace browser-local inference with a hosted provider as part of deployment.
+
+The Vite development and preview servers and the included Vercel configuration set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Preserve these settings where the hosting platform allows them. The Emergent-hosted HTTPS preview must still be tested directly: a successful build does not prove that the hosted browser can initialize WebLLM or complete Qwen inference. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the release gate.
 
 ## Privacy and limitations
 
@@ -51,7 +57,7 @@ WebGPU support and performance vary by browser and hardware. A production build 
 ## Project links
 
 - GitHub: https://github.com/anandrajput0210/unread-radar-ai
-- Production deployment: https://unread-radar-ai-six.vercel.app/
+- Existing Vercel fallback: https://unread-radar-ai-six.vercel.app/
 
 ## Suggested manual QA
 
