@@ -33,10 +33,38 @@ export function buildSourceGroundedSummary(findings = {}, snapshot = null) {
     : (Array.isArray(findings.urgentRows) ? findings.urgentRows : []);
   const summary = [];
 
+  // A single message can have two valid roles: it may report that a
+  // prerequisite changed state and also contain a new task commitment.
+  // Keep that dual classification visible rather than forcing one label.
+  const conditionUpdates = unique((actions || []).flatMap((action) =>
+    (Array.isArray(action?.supportingDetails) ? action.supportingDetails : [])
+      .filter((detail) => String(detail?.kind || "").startsWith("condition-resolution:"))
+      .map((detail) => {
+        const kind = String(detail.kind);
+        const status = kind.includes("reported_satisfied") ? "reported satisfied"
+          : kind.includes("reported_rejected") ? "reported rejected"
+            : kind.includes("ambiguous") ? "conflicting or ambiguous"
+              : "updated";
+        const sameSourceAsAction = detail.sourceSpan?.startOffset === action.sourceSpan?.startOffset
+          && detail.sourceSpan?.endOffset === action.sourceSpan?.endOffset;
+        const superseded = kind.includes(":superseded:");
+        const excerpt = exactExcerpt(detail, snapshot, detail?.text);
+        if (!excerpt) return "";
+        const label = superseded
+          ? `Earlier condition evidence superseded (${status})`
+          : sameSourceAsAction
+            ? `Dual-role line (condition ${status} + task commitment)`
+            : `Condition status update (${status})`;
+        return `${label}: “${excerpt}”`;
+      })
+  )).filter(Boolean);
+
+  conditionUpdates.slice(0, 3).forEach((line) => summary.push(line));
+
   if (actions.length) {
     summary.push(`${actions.length} rule-detected action candidate${actions.length === 1 ? "" : "s"}.`);
     actions.slice(0, 3).forEach((action) => {
-      const excerpt = exactExcerpt(action, snapshot, action?.text);
+      const excerpt = exactExcerpt(action, snapshot, action?.sourceText || action?.text);
       if (excerpt) summary.push(`Action-pattern line: “${excerpt}”`);
     });
   }
@@ -69,5 +97,5 @@ export function buildSourceGroundedSummary(findings = {}, snapshot = null) {
     summary.push("Review the original conversation; pattern-based extraction is not exhaustive.");
   }
 
-  return summary.slice(0, 8);
+  return summary.slice(0, 10);
 }

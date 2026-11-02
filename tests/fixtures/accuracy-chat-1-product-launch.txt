@@ -1,0 +1,8 @@
+[09:12, 03/11/2026] Priya Nair: Morning team. The launch page is almost ready, but the updated screenshots are still missing.
+[09:14, 03/11/2026] Priya Nair: Daniel, please upload the revised screenshots to the shared folder by Thursday 4 PM.
+[09:16, 03/11/2026] Daniel Kim: Got it. I'll upload the screenshots before 4 PM Thursday.
+[09:19, 03/11/2026] Elena Ruiz: I can review the pricing section after lunch.
+[09:22, 03/11/2026] Omar Khan: Priya, can you confirm the vendor quote before tomorrow's stand-up?
+[09:25, 03/11/2026] Priya Nair: Yes, I'll confirm the quote before the stand-up.
+[09:29, 03/11/2026] Daniel Kim: We do not need to update the old FAQ for this launch.
+[09:34, 03/11/2026] Elena Ruiz: Decision: we'll publish the launch page on 12 November, provided QA signs off.

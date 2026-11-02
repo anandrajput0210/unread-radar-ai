@@ -40,7 +40,9 @@ import {
   invalidateAnalysisWork,
 } from "./lib/localAiEngine.js";
 import { createEmptyAnalysis } from "./lib/analysisSchema.js";
+import { buildPriorityView } from "./lib/priorityView.js";
 import { createSourceSnapshot } from "./lib/sourceSnapshot.js";
+import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, updateTaskStatus } from "./lib/taskWorkflow.js";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -132,12 +134,12 @@ function ProgressMeter({ meter }) {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-bold text-slate-100">{meter.label}</p>
-            <p className="mt-0.5 text-[11px] leading-4 text-slate-400">{meter.description}</p>
+            <p className="mt-0.5 text-xs leading-4 text-slate-400">{meter.description}</p>
           </div>
         </div>
         <div className="text-right">
           <p className="text-lg font-extrabold tabular-nums text-white">{meter.percent}%</p>
-          <p className="text-[10px] text-slate-400">{meter.count} / {meter.total} rows</p>
+          <p className="text-[11px] text-slate-400">{meter.count} / {meter.total} rows</p>
         </div>
       </div>
       <div
@@ -158,9 +160,10 @@ function ProgressMeter({ meter }) {
 export default function App() {
   const [chatText, setChatText] = useState("");
   const [activeTab, setActiveTab] = useState("summary");
-  const [taskStates, setTaskStates] = useState({});
+  const [taskStatuses, setTaskStatuses] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [copied, setCopied] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [loadedFileName, setLoadedFileName] = useState("");
@@ -174,6 +177,7 @@ export default function App() {
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
   const [legacyCacheStatus, setLegacyCacheStatus] = useState({ type: "", message: "" });
   const fileInputRef = useRef(null);
+  const chatTextareaRef = useRef(null);
   const activeRunRef = useRef(0);
   const legacyCleanupAttemptedRef = useRef(false);
 
@@ -192,9 +196,10 @@ export default function App() {
   }, []);
 
   const runtimeSupport = checkLocalModelSupport();
-  const completedCount = analysis.actions.filter((task) => taskStates[task.id]).length;
-  const openTasks = analysis.actions.filter((task) => !taskStates[task.id]);
-  const highAlerts = analysis.alerts.filter((item) => item.urgency === "High").length;
+  const taskStatusCounts = countTaskStatuses(analysis.actions, taskStatuses);
+  const completedCount = taskStatusCounts.completed;
+  const priorityView = buildPriorityView(analysis);
+  const highAlerts = priorityView.counts.High;
   const missedMentions = analysis.mentions.length;
   const lineCount = analysis.lineCount;
   const toPercent = (value, total) => total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
@@ -241,7 +246,8 @@ export default function App() {
   const filteredActions = analysis.actions.filter((task) => {
     const matchesSearch = task.text.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesUrgency = urgencyFilter === "All" || task.urgency === urgencyFilter;
-    return matchesSearch && matchesUrgency;
+    const matchesStatus = statusFilter === "All" || getTaskStatus(taskStatuses, task.id) === statusFilter;
+    return matchesSearch && matchesUrgency && matchesStatus;
   });
 
   function resetAnalysis() {
@@ -251,10 +257,11 @@ export default function App() {
     setSourceSnapshot(null);
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
-    setTaskStates({});
+    setTaskStatuses({});
     setActiveTab("summary");
     setSearchQuery("");
     setUrgencyFilter("All");
+    setStatusFilter("All");
     setExportStatus({ type: "", message: "" });
     setAnalysisStatus({ type: "", message: "" });
   }
@@ -369,7 +376,7 @@ export default function App() {
           : " Recognized message headers are retained, but extracted interpretations still require human review.";
         setAnalysis(result);
         setHasAnalysis(true);
-        setTaskStates({});
+        setTaskStatuses({});
         setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
         setAnalysisStatus({
           type: "warning",
@@ -403,16 +410,26 @@ export default function App() {
       if (runId !== activeRunRef.current) return;
       const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
       const segmentCount = Number.isFinite(result.sourceChunks) ? result.sourceChunks : 1;
+      const inferenceCompleted = result.modelExecution?.status === "completed";
       setAnalysis(result);
       setHasAnalysis(true);
-      setTaskStates({});
-      setModelState({ state: "ready", progress: 100, message: "Local model ready" });
+      setTaskStatuses({});
+      setModelState({
+        state: inferenceCompleted ? "ready" : "rules-only",
+        progress: inferenceCompleted ? 100 : 0,
+        message: inferenceCompleted ? "Local model inference completed" : "Rules-only result; model inference not confirmed",
+      });
       const granularityNote = snapshot.boundaryMode === "opaque"
         ? " Source boundaries were not recognizable; this import is represented as one source message with unknown author/time."
         : " Recognized source records are retained.";
+      const inferenceNote = usedCachedResult
+        ? (inferenceCompleted ? "Cached result reused; Qwen inference completed on the original run" : "Cached result reused")
+        : inferenceCompleted
+          ? `Qwen inference completed · ${result.modelExecution.structuredResponsesValidated} structured response${result.modelExecution.structuredResponsesValidated === 1 ? "" : "s"} validated`
+          : "Rules-only analysis completed; Qwen inference did not run";
       setAnalysisStatus({
-        type: "success",
-        message: `${usedCachedResult ? "In-memory results reused" : forceFresh ? "Fresh local model analysis complete" : "Analysis complete on this device"} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.${granularityNote}`,
+        type: inferenceCompleted ? "success" : "warning",
+        message: `${inferenceNote} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.${granularityNote}`,
       });
       setActiveTab("summary");
     } catch (error) {
@@ -426,8 +443,20 @@ export default function App() {
     }
   }
 
-  function toggleTask(id) {
-    setTaskStates((current) => ({ ...current, [id]: !current[id] }));
+  function changeTaskStatus(id, nextStatus) {
+    setTaskStatuses((current) => updateTaskStatus(current, id, nextStatus));
+  }
+
+  function showSourceInInput(reference) {
+    if (!reference || reference.snapshotId !== sourceSnapshot?.snapshotId || !Number.isSafeInteger(reference.startOffset) || !Number.isSafeInteger(reference.endOffset)) {
+      setAnalysisStatus({ type: "warning", message: "This source reference is unavailable or belongs to an older chat snapshot." });
+      return;
+    }
+    const textarea = chatTextareaRef.current;
+    if (!textarea) return;
+    textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+    textarea.focus();
+    textarea.setSelectionRange(reference.startOffset, reference.endOffset);
   }
 
   function downloadExecutiveBrief() {
@@ -438,15 +467,37 @@ export default function App() {
     }
 
     const generatedAt = new Date().toLocaleString();
+    const prioritySummary = buildPriorityView(analysis);
     const taskLines = analysis.actions.length
       ? analysis.actions.map((task) => {
-          const due = task.dueDate ? ` · Due signal: ${task.dueDate}` : "";
-          const owner = task.owner ? ` · Assigned to: ${task.owner}` : " · Assignment not explicit";
+          const due = task.dueDate
+            ? task.dueDateStatus === "contextual"
+              ? ` · Contextual timing (verify): ${task.dueDate}`
+              : task.dueDateStatus === "explicit"
+                ? ` · Explicit deadline: ${task.dueDate}`
+                : ` · Unverified due signal: ${task.dueDate}`
+            : "";
+          const owner = task.owner
+            ? ` · Assigned to: ${task.owner}`
+            : task.classification === "unassigned_request"
+              ? " · Unassigned request"
+              : " · Owner not explicit";
           const confidence = typeof task.confidence === "number" ? ` · Confidence: ${Math.round(task.confidence * 100)}%` : "";
           const evidence = task.sourceEvidence?.quote
             ? `\n  - Exact source span (${sourceReferenceLabel(task)}): ${task.sourceEvidence.quote}`
             : `\n  - ${sourceReferenceLabel(task)}${task.evidence ? `; model-provided excerpt (unverified): ${task.evidence}` : ""}`;
-          return `- [${taskStates[task.id] ? "x" : " "}] **${task.urgency}** — ${task.text}${due}${owner}${confidence}${evidence}`;
+          const conditionStatusLabel = task.conditionStatus === "reported_satisfied"
+            ? "Condition reported satisfied"
+            : task.conditionStatus === "reported_rejected"
+              ? "Condition reported rejected"
+              : task.conditionStatus === "ambiguous"
+                ? "Condition status ambiguous"
+                : "Condition pending verification";
+          const condition = task.condition ? ` · ${conditionStatusLabel}: ${task.condition}` : "";
+          const supporting = task.supportingEvidence?.length
+            ? task.supportingEvidence.map((detail) => `\n  - ${detail.kind || "Related context"} (${detail.sourceReferenceStatus || "unverified"}): ${detail.evidence?.quote || detail.text}`).join("")
+            : "";
+          return `- **${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, task.id)]}** · **${task.urgency}** — ${task.text}${due}${owner}${condition}${confidence}${evidence}${supporting}`;
         })
       : ["- No action items were extracted."];
     const urgentLines = analysis.urgentRows.length
@@ -471,7 +522,8 @@ export default function App() {
       `- **Generated:** ${generatedAt}`,
       `- **Source:** ${loadedFileName || "Pasted conversation"}`,
       `- **Model:** ${analysis.modelId || MODEL_ID}`,
-      `- **Processing:** ${analysis.analysisMode === "rules-only" ? "Local deterministic rules only; limited pattern coverage" : "On-device WebGPU inference combined with local rules"}; chat content is not sent to a hosted AI API`,
+      `- **Processing:** ${analysis.modelExecution?.status === "completed" ? "On-device WebLLM/WebGPU inference combined with local rules" : "Local deterministic rules only; limited pattern coverage; no successful model inference recorded"}; chat content is not sent to a hosted AI API`,
+      `- **Inference execution:** ${analysis.modelExecution?.status === "completed" ? `${analysis.modelExecution.modelId}; ${analysis.modelExecution.structuredResponsesValidated}/${analysis.modelExecution.segmentsRequested} structured model responses validated` : "No successful Qwen inference recorded; rules-only results must not be described as model output"}`,
       `- **Source structure:** ${analysis.sourceBoundaryMode === "opaque" ? "One opaque source message; author/timestamp unknown; reduced message-level granularity" : `${analysis.sourceMessageCount} recognized source records`}`,
       "- **Evidence semantics:** Valid source references confirm the exact source location and quotation only; semantic support is unverified.",
       "",
@@ -482,8 +534,10 @@ export default function App() {
       "## Operational Index Analytics",
       "",
       `- **Non-empty rows:** ${analysis.lineCount}`,
-      `- **Total alerts:** ${analysis.alerts.length}`,
-      `- **High-urgency rows:** ${analysis.urgentRows.length} (${toPercent(analysis.urgentRows.length, lineCount)}%)`,
+      `- **Unique priority items:** ${prioritySummary.uniquePriorityCount} (${prioritySummary.uniqueTaskCount} task candidates + ${prioritySummary.standaloneSignalCount} standalone source signals)`,
+      `- **Supporting signals attached to task messages:** ${prioritySummary.linkedSignalCount} (not counted again as separate priority items)`,
+      `- **High-priority unique items:** ${prioritySummary.counts.High}`,
+      `- **High-urgency source rows:** ${analysis.urgentRows.length} (${toPercent(analysis.urgentRows.length, lineCount)}%)`,
       `- **Action items:** ${analysis.actions.length} (${toPercent(analysis.actions.length, lineCount)}% of rows)`,
       `- **Missed mentions:** ${analysis.mentions.length}`,
       "",
@@ -541,7 +595,7 @@ export default function App() {
       ...analysis.summary.map((item) => `• ${item}`),
       "",
       "ACTION ITEMS",
-      ...analysis.actions.map((item) => `• [${taskStates[item.id] ? "x" : " "}] [${item.urgency}] ${item.text} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`),
+      ...analysis.actions.map((item) => `• [${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, item.id)]}] [${item.urgency}] ${item.text} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`),
       "",
       "DECISIONS",
       ...analysis.decisions.map((item) => `• ${item}`),
@@ -571,9 +625,9 @@ export default function App() {
   }
 
   const tabs = [
-    { id: "summary", label: "AI Summary", icon: Sparkles, count: analysis.summary.length },
+    { id: "summary", label: "Catch-up summary", icon: Sparkles, count: analysis.summary.length },
     { id: "tasks", label: "Action items", icon: ClipboardList, count: analysis.actions.length },
-    { id: "matrix", label: "Urgency matrix", icon: Target, count: analysis.alerts.length },
+    { id: "matrix", label: "Priority view", icon: Target, count: priorityView.uniquePriorityCount },
   ];
 
   return (
@@ -634,7 +688,7 @@ export default function App() {
                 {fileStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2 text-xs leading-5", fileStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={fileStatus.type === "error" ? "alert" : "status"} aria-live="polite">{fileStatus.message}</p>}
               </div>
               <label htmlFor="chat-log" className="mb-2 block text-sm font-semibold text-slate-200">Chat log</label>
-              <textarea id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
+              <textarea ref={chatTextareaRef} id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
               <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
@@ -648,30 +702,33 @@ export default function App() {
             </div>
 
             <div className="min-w-0 space-y-5">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><MetricCard icon={Bell} label="Total alerts" value={hasAnalysis ? analysis.alerts.length : "—"} caption={hasAnalysis ? `${highAlerts} high-priority signals` : "Run local analysis to calculate"} tone="rose" /><MetricCard icon={ClipboardList} label="Extracted tasks" value={hasAnalysis ? analysis.actions.length : "—"} caption={hasAnalysis ? `${completedCount} completed · ${openTasks.length} open` : "Generated from your chat"} tone="blue" /><MetricCard icon={Hash} label="Mentions" value={hasAnalysis ? missedMentions : "—"} caption="Direct handles identified by model" tone="violet" /></div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><MetricCard icon={Bell} label="Priority items" value={hasAnalysis ? priorityView.uniquePriorityCount : "—"} caption={hasAnalysis ? `${analysis.actions.length} task candidates · ${priorityView.standaloneSignalCount} standalone signals · ${highAlerts} high` : "Run local analysis to calculate"} tone="rose" /><MetricCard icon={ClipboardList} label="Extracted tasks" value={hasAnalysis ? analysis.actions.length : "—"} caption={hasAnalysis ? `${taskStatusCounts["needs-review"]} need review · ${completedCount} completed` : "Generated from your chat"} tone="blue" /><MetricCard icon={Hash} label="Mentions" value={hasAnalysis ? missedMentions : "—"} caption="Direct handles identified locally" tone="violet" /></div>
 
               <section className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5" aria-labelledby="operational-index-heading">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-indigo-300">Live metrics</p><h2 id="operational-index-heading" className="text-lg font-bold tracking-tight text-white">Operational Index Analytics</h2><p className="mt-1 text-xs leading-5 text-slate-400">Metrics are based on completed local-model analysis.</p></div><button type="button" onClick={downloadExecutiveBrief} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-300/30 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-[0_0_28px_rgba(99,102,241,0.24)] transition-all hover:-translate-y-0.5 hover:from-indigo-400 hover:via-violet-400 hover:to-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"><Download size={15} aria-hidden="true" /> Download Local Executive Brief (.md)</button></div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-indigo-300">Live metrics</p><h2 id="operational-index-heading" className="text-lg font-bold tracking-tight text-white">Operational Index Analytics</h2><p className="mt-1 text-xs leading-5 text-slate-400">Metrics reflect the current local analysis; rules-only fallback coverage is limited.</p></div><button type="button" onClick={downloadExecutiveBrief} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-300/30 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-[0_0_28px_rgba(99,102,241,0.24)] transition-all hover:-translate-y-0.5 hover:from-indigo-400 hover:via-violet-400 hover:to-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"><Download size={15} aria-hidden="true" /> Download Local Executive Brief (.md)</button></div>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">{analyticsMeters.map((meter) => <ProgressMeter key={meter.id} meter={meter} />)}</div>
                 {exportStatus.message && <p className={cx("mt-4 rounded-lg px-3 py-2 text-xs leading-5", exportStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={exportStatus.type === "error" ? "alert" : "status"} aria-live="polite">{exportStatus.message}</p>}
               </section>
 
               <section className="overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/45 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl">
                 <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Summary items are derived from deterministic local checks. Exact source-reference validity is tracked separately from whether an interpretation is correct." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
-                  <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[10px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
+                  <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[11px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-xl border border-indigo-300/15 bg-gradient-to-br from-indigo-500/10 to-cyan-400/[0.04] p-4"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Rule-based summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge></div><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-[11px] leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
-                    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
-                      <div className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3.5"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
+                      <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}
 
-                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run local AI analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option>All</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div></div>
-                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const done = Boolean(taskStates[task.id]); return <label key={task.id} className={cx("flex cursor-pointer gap-3 rounded-xl border p-3.5 transition", done ? "border-emerald-300/20 bg-emerald-400/[0.05]" : "border-slate-700/60 bg-slate-950/30 hover:border-indigo-300/30 hover:bg-slate-950/55")}><input type="checkbox" checked={done} onChange={() => toggleTask(task.id)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-900 text-indigo-400 focus:ring-indigo-400" /><span className="min-w-0 flex-1"><span className={cx("block text-sm leading-6", done ? "text-slate-500 line-through" : "text-slate-200")}>{task.text}</span><span className="mt-2 flex flex-wrap items-center gap-2"><Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge><span className="text-[11px] text-slate-400">{task.owner ? `Assignment: ${task.owner}` : "Assignment not explicit"}</span>{task.dueDate && <span className="text-[11px] text-cyan-200">Due signal: {task.dueDate}</span>}{typeof task.confidence === "number" && <span className="text-[11px] text-slate-500">Model confidence {Math.round(task.confidence * 100)}%</span>}<span className="text-[11px] text-slate-500">{task.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</span></span>{task.sourceEvidence?.quote ? <span className="mt-2 block text-[11px] leading-5 text-slate-500">Exact source span: {task.sourceEvidence.quote}</span> : task.evidence && <span className="mt-2 block text-[11px] leading-5 text-slate-500">Model-provided excerpt (unverified): {task.evidence}</span>}</span>{done && <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-200"><Check size={12} strokeWidth={3} aria-hidden="true" /></span>}</label>; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
-                    {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{completedCount} of {analysis.actions.length} tasks checked complete. Checklist state lasts for this page session.</p>}</>}</div>}
+                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run local AI analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div></div>
+                    {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
+                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const status = getTaskStatus(taskStatuses, task.id); return <article key={task.id} className={cx("group rounded-2xl border p-4 shadow-[0_14px_36px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(2,6,23,0.26)]", status === "completed" ? "border-emerald-300/20 bg-emerald-400/[0.05]" : status === "rejected" ? "border-rose-300/20 bg-rose-400/[0.04]" : "border-slate-700/60 bg-slate-950/30 hover:border-indigo-300/30 hover:bg-slate-950/55")}><div className="flex flex-col gap-3 sm:flex-row sm:items-start"><div className="min-w-0 flex-1"><p className={cx("text-sm leading-6", status === "completed" || status === "rejected" ? "text-slate-400" : "text-slate-100")}>{task.text}</p><div className="mt-2 flex flex-wrap items-center gap-2"><Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge><span className="text-xs text-slate-400">{task.classification === "self_commitment" ? `Self-commitment · ${task.owner || "speaker"}` : task.owner ? `Assigned task · ${task.owner}` : task.classification === "unassigned_request" ? "Unassigned request · no owner stated" : task.classification === "unassigned_action" ? "Unassigned action · no owner stated" : task.classification === "model_candidate" ? "Model suggestion · verify details" : "Unclassified candidate · verify owner"}</span>{task.acknowledgedBy && <span className="text-xs font-semibold text-emerald-300">Acknowledged by {task.acknowledgedBy}</span>}{task.dueDate && <span className={cx("text-xs", task.dueDateStatus === "contextual" ? "text-amber-200" : task.dueDateStatus === "explicit" ? "text-cyan-200" : "text-slate-400")}>{task.dueDateStatus === "contextual" ? `Contextual timing · verify: ${task.dueDate}` : task.dueDateStatus === "explicit" ? `Explicit deadline: ${task.dueDate}` : `Unverified due signal: ${task.dueDate}`}</span>}{task.condition && <span className={cx("text-xs", task.conditionStatus === "reported_satisfied" ? "text-emerald-200" : task.conditionStatus === "reported_rejected" ? "text-rose-200" : task.conditionStatus === "ambiguous" ? "text-orange-200" : "text-amber-200")}>{task.conditionStatus === "reported_satisfied" ? `Condition reported satisfied: ${task.condition}` : task.conditionStatus === "reported_rejected" ? `Condition reported rejected: ${task.condition}` : task.conditionStatus === "ambiguous" ? `Condition status ambiguous: ${task.condition}` : `Condition pending verification: ${task.condition}`}</span>}{typeof task.confidence === "number" && <span className="text-xs text-slate-500">Model confidence {Math.round(task.confidence * 100)}%</span>}</div><p className="mt-2 text-xs leading-5 text-slate-500">{task.sourceReferenceStatus === "valid" ? "Exact source reference validated · meaning still needs human review" : "No verified source reference · treat this as an unverified candidate"}</p>{task.sourceEvidence?.quote ? <div className="mt-2 rounded-xl border border-l-2 border-cyan-300/30 border-l-cyan-300/60 bg-slate-950/65 px-3 py-3 shadow-inner shadow-slate-950/30"><blockquote className="text-xs leading-5 text-slate-300">{task.sourceEvidence.quote}</blockquote><button type="button" onClick={() => showSourceInInput(task.sourceEvidence)} className="mt-2 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Show original in chat</button>{task.acknowledgementEvidence?.quote && <div className="mt-2 border-t border-emerald-300/15 pt-2"><p className="text-[11px] text-emerald-200">Acknowledgement: {task.acknowledgementEvidence.quote}</p><button type="button" onClick={() => showSourceInInput(task.acknowledgementEvidence)} className="mt-1 text-[11px] font-bold text-emerald-200 underline decoration-emerald-200/40 underline-offset-2 hover:text-emerald-100">Show acknowledgement in chat</button></div>}</div> : task.evidence && <p className="mt-2 text-xs leading-5 text-slate-500">Model excerpt (unverified): {task.evidence}</p>}{task.supportingEvidence?.length > 0 && <div className="mt-2 space-y-2 rounded-xl border border-violet-300/20 bg-violet-300/[0.045] px-3 py-3 shadow-inner shadow-slate-950/20"><p className="text-[11px] font-bold uppercase tracking-wider text-violet-200">Related conversation context</p>{task.supportingEvidence.map((detail, index) => <div key={`${task.id}-support-${index}`} className="border-t border-violet-300/10 pt-2 first:border-0 first:pt-0"><p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-violet-200">{detail.kind === "precondition-context" ? "Original condition" : detail.kind === "condition-resolution:reported_satisfied" ? "Condition satisfaction evidence" : detail.kind === "condition-resolution:reported_rejected" ? "Condition rejection evidence" : detail.kind === "condition-resolution:ambiguous" ? "Conflicting condition evidence" : detail.kind === "condition-resolution:pending_verification" ? "Condition status evidence" : detail.kind === "condition-resolution:superseded:reported_satisfied" ? "Earlier approval (superseded)" : detail.kind === "condition-resolution:superseded:reported_rejected" ? "Earlier rejection (superseded)" : detail.kind || "Related message"}</p><blockquote className="text-xs leading-5 text-slate-300">{detail.evidence?.quote || detail.text}</blockquote>{detail.evidence?.quote && detail.sourceReferenceStatus === "valid" && <button type="button" onClick={() => showSourceInInput(detail.evidence)} className="mt-1 text-[11px] font-bold text-violet-200 underline decoration-violet-200/40 underline-offset-2 hover:text-violet-100">Show related message in chat</button>}</div>)}</div>}</div><div className="w-full shrink-0 sm:w-40"><label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500" htmlFor={`task-status-${task.id}`}>Review status</label><select id={`task-status-${task.id}`} value={status} onChange={(event) => changeTaskStatus(task.id, event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-2.5 py-2 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/15">{TASK_STATUSES.map((item) => <option key={item} value={item}>{TASK_STATUS_LABELS[item]}</option>)}</select></div></div></article>; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
+                    {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review changes last for this page session.</p>}</>}</div>}
 
-                  {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Urgency matrix is waiting" description="Run local AI analysis to classify messages and display priority signals." /> : <><div className="grid grid-cols-3 gap-2">{[{ name: "High", count: analysis.alerts.filter((item) => item.urgency === "High").length, tone: "red", icon: ArrowUpRight, note: "Review first" }, { name: "Medium", count: analysis.alerts.filter((item) => item.urgency === "Medium").length, tone: "amber", icon: Activity, note: "Plan next" }, { name: "Low", count: analysis.alerts.filter((item) => item.urgency === "Low").length, tone: "slate", icon: ArrowDownRight, note: "Keep in view" }].map((group) => { const Icon = group.icon; return <div key={group.name} className={cx("rounded-xl border p-3", group.tone === "red" ? "border-rose-300/20 bg-rose-400/[0.06]" : group.tone === "amber" ? "border-amber-300/20 bg-amber-300/[0.05]" : "border-slate-700/60 bg-slate-950/35")}><div className="flex items-center justify-between gap-1"><p className={cx("text-xs font-bold", group.tone === "red" ? "text-rose-200" : group.tone === "amber" ? "text-amber-200" : "text-slate-300")}>{group.name}</p><Icon size={14} aria-hidden="true" /></div><p className="mt-2 text-2xl font-extrabold tabular-nums text-white">{group.count}</p><p className="mt-1 text-[10px] text-slate-400">{group.note}</p></div>; })}</div>
-                    {analysis.alerts.length ? <div className="space-y-4">{["High", "Medium", "Low"].map((level) => { const items = analysis.alerts.filter((item) => item.urgency === level); if (!items.length) return null; return <div key={level}><div className="mb-2 flex items-center gap-2"><span className={cx("h-2 w-2 rounded-full", level === "High" ? "bg-rose-400" : level === "Medium" ? "bg-amber-300" : "bg-slate-400")} /><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">{level} priority</h3><span className="text-xs text-slate-500">{items.length}</span></div><div className="space-y-2">{items.slice(0, 8).map((item) => <div key={`${item.kind}-${item.id}`} className="flex gap-3 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3"><div className={cx("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", level === "High" ? "bg-rose-400/10 text-rose-200" : level === "Medium" ? "bg-amber-300/10 text-amber-200" : "bg-slate-800 text-slate-300")}>{item.kind === "Deadline" ? <Clock3 size={15} /> : item.kind === "Mention" ? <Hash size={15} /> : item.kind === "Urgent message" ? <AlertCircle size={15} /> : <ClipboardList size={15} />}</div><div className="min-w-0 flex-1"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{item.kind}</span>{item.owner && <span className="text-[10px] text-slate-500">· {item.owner}</span>}</div><p className="break-words text-xs leading-5 text-slate-200">{item.text}</p>{item.reason && <p className="mt-1 text-[11px] leading-5 text-slate-500">{item.reason}</p>}<p className="mt-1 text-[10px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></div></div>)}</div></div>; })}</div> : <EmptyState icon={Target} title="No alert signals returned" description="The local model did not return any classified tasks, deadlines, mentions, or urgent rows." />}
+                  {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Priority view is waiting" description="Run local analysis to identify candidate tasks and their supporting signals." /> : <>
+                    <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-slate-100">Unique priority items</p><Badge tone="blue">{priorityView.uniquePriorityCount} counted once</Badge></div><p className="mt-1 text-xs leading-5 text-slate-400">Action candidates are the primary items. A deadline or urgency marker from the same recognized source message is attached as context, not counted as another alert.</p><div className="mt-3 grid grid-cols-3 gap-2">{[{ name: "High", count: priorityView.counts.High, tone: "red", icon: ArrowUpRight, note: "Review first" }, { name: "Medium", count: priorityView.counts.Medium, tone: "amber", icon: Activity, note: "Plan next" }, { name: "Low", count: priorityView.counts.Low, tone: "slate", icon: ArrowDownRight, note: "Keep in view" }].map((group) => { const Icon = group.icon; return <div key={group.name} className={cx("rounded-2xl border p-4 shadow-[0_10px_26px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5", group.tone === "red" ? "border-rose-300/20 bg-rose-400/[0.06]" : group.tone === "amber" ? "border-amber-300/20 bg-amber-300/[0.05]" : "border-slate-700/60 bg-slate-950/35")}><div className="flex items-center justify-between gap-1"><p className={cx("text-xs font-bold", group.tone === "red" ? "text-rose-200" : group.tone === "amber" ? "text-amber-200" : "text-slate-300")}>{group.name}</p><Icon size={14} aria-hidden="true" /></div><p className="mt-2 text-2xl font-extrabold tabular-nums text-white">{group.count}</p><p className="mt-1 text-[11px] text-slate-400">{group.note}</p></div>; })}</div></div>
+                    {priorityView.priorityItems.length ? <div className="space-y-4">{["High", "Medium", "Low"].map((level) => { const items = priorityView.priorityItems.filter((item) => item.urgency === level); if (!items.length) return null; return <section key={level}><div className="mb-2 flex items-center gap-2"><span className={cx("h-2 w-2 rounded-full", level === "High" ? "bg-rose-400" : level === "Medium" ? "bg-amber-300" : "bg-slate-400")} /><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">{level} priority</h3><span className="text-xs text-slate-500">{items.length}</span></div><div className="space-y-2">{items.map((item) => <article key={item.id} className="group rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_30px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-600 hover:bg-slate-900/65 hover:shadow-[0_18px_38px_rgba(2,6,23,0.25)]"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{item.type === "task" ? "Action item" : "Standalone source signal"}</span>{item.owner && <span className="text-[11px] text-slate-400">· {item.owner}</span>}{item.classification === "self_commitment" && <Badge tone="blue">Self-commitment</Badge>}{item.classification === "unassigned_request" && <Badge tone="slate">Unassigned request</Badge>}{item.classification === "model_candidate" && <Badge tone="amber">Model suggestion · verify</Badge>}</div><p className="break-words text-xs leading-5 text-slate-200">{item.text}</p>{item.type === "task" && item.dueDate && <p className={cx("mt-1 text-xs", item.dueDateStatus === "contextual" ? "text-amber-200" : item.dueDateStatus === "explicit" ? "text-cyan-200" : "text-slate-400")}>{item.dueDateStatus === "contextual" ? `Contextual timing · verify: ${item.dueDate}` : item.dueDateStatus === "explicit" ? `Explicit deadline: ${item.dueDate}` : `Unverified due signal: ${item.dueDate}`}</p>}{item.type === "task" && item.condition && <p className={cx("mt-1 text-xs", item.conditionStatus === "reported_satisfied" ? "text-emerald-200" : item.conditionStatus === "reported_rejected" ? "text-rose-200" : item.conditionStatus === "ambiguous" ? "text-orange-200" : "text-amber-200")}>{item.conditionStatus === "reported_satisfied" ? `Condition reported satisfied: ${item.condition}` : item.conditionStatus === "reported_rejected" ? `Condition reported rejected: ${item.condition}` : item.conditionStatus === "ambiguous" ? `Condition status ambiguous: ${item.condition}` : `Condition pending verification: ${item.condition}`}</p>}{item.type === "task" && item.acknowledgedBy && <p className="mt-1 text-xs font-semibold text-emerald-300">Acknowledged by {item.acknowledgedBy}</p>}{item.type === "task" && item.linkedSignals.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[11px] text-slate-500">Supporting context on this source:</span>{[...new Set(item.linkedSignals.map((signal) => signal.kind))].map((kind) => <Badge key={kind} tone="violet">{kind}</Badge>)}</div>}{item.type === "signal" && item.signals.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{[...new Set(item.signals.map((signal) => signal.kind))].map((kind) => <Badge key={kind} tone="violet">{kind}</Badge>)}</div>}<p className="mt-2 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></article>)}</div></section>; })}</div> : <EmptyState icon={Target} title="No priority items returned" description="No action candidates or standalone urgency signals were detected." />}
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 px-4 py-3 text-xs leading-5 text-slate-400">{priorityView.uniqueTaskCount} task candidates · {priorityView.linkedSignalCount} supporting signals attached to task messages · {priorityView.standaloneSignalCount} standalone source signal groups. Supporting signals are not added again to the priority count.</div>
                   </>}</div>}
                 </div>
               </section>
