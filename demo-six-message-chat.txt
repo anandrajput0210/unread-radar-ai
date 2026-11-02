@@ -1,0 +1,6 @@
+[14:01, 12/10/2024] Alex Johnson: Hey Team, we need to finalize the Q4 product roadmap.
+[14:02, 12/10/2024] Maria Garcia: Can you send over the latest feature requests?
+[14:05, 12/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.
+[14:06, 12/10/2024] Sarah Chen: I can help review the deck.
+[14:10, 12/10/2024] Alex Johnson: Thanks Sarah. We also need to decide on the launch event venue, Mike, can you look into pricing for the downtown hotel? This is urgent as we need to finalize it by Monday.
+[14:15, 12/10/2024] Mike Ross: I'm on it.

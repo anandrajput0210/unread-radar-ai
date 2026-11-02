@@ -89,9 +89,9 @@ test("correctly extracts signals from the baseline conversation", () => {
     result.mentions.map((item) => item.handle),
     ["anand"]
   );
-  assert.equal(result.deadlines.length, 3);
+  assert.equal(result.deadlines.length, 2);
   assert.equal(result.urgentRows.length, 1);
-  assert.equal(result.alerts.length, 7);
+  assert.equal(result.alerts.length, 6);
 });
 
 test("returns a stable result for empty or non-string input", () => {
@@ -140,4 +140,70 @@ test("retains exact source spans for rule findings without trimming the source t
   assert.equal(result.deadlines[0].sourceSpan.startOffset, input.indexOf("  Priya:"));
   assert.equal(result.urgentRowEvidence[0].text, "Ops: Critical outage is blocking checkout.");
   assert.equal(input.slice(result.urgentRowEvidence[0].sourceSpan.startOffset, result.urgentRowEvidence[0].sourceSpan.endOffset), result.urgentRowEvidence[0].text);
+});
+
+test("resolves named addressees, deadlines, and acknowledgements in the six-message demo chat", () => {
+  const input = [
+    "[14:01, 12/10/2024] Alex Johnson: Hey Team, we need to finalize the Q4 product roadmap.",
+    "[14:02, 12/10/2024] Maria Garcia: Can you send over the latest feature requests?",
+    "[14:05, 12/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.",
+    "[14:06, 12/10/2024] Sarah Chen: I can help review the deck.",
+    "[14:10, 12/10/2024] Alex Johnson: Thanks Sarah. We also need to decide on the launch event venue, Mike, can you look into pricing for the downtown hotel? This is urgent as we need to finalize it by Monday.",
+    "[14:15, 12/10/2024] Mike Ross: I'm on it.",
+  ].join("\n");
+
+  const result = analyzeConversations(input);
+  assert.equal(result.actions.length, 3);
+
+  const featureRequest = result.actions.find((item) => /latest feature requests/i.test(item.text));
+  assert.ok(featureRequest);
+  assert.equal(featureRequest.owner, null);
+  assert.equal(featureRequest.classification, "unassigned_request");
+
+  const deckTask = result.actions.find((item) => /executive deck/i.test(item.text));
+  assert.ok(deckTask);
+  assert.equal(deckTask.owner, "Maria");
+  assert.equal(deckTask.dueDate, "Friday, 5 PM");
+  assert.equal(deckTask.classification, "assigned_task");
+  assert.equal(deckTask.dueDateStatus, "explicit");
+
+  const hotelTask = result.actions.find((item) => /downtown hotel/i.test(item.text));
+  assert.ok(hotelTask);
+  assert.equal(hotelTask.owner, "Mike");
+  assert.equal(hotelTask.dueDate, "Monday");
+  assert.equal(hotelTask.dueDateStatus, "contextual");
+  assert.equal(hotelTask.classification, "assigned_task");
+  assert.equal(hotelTask.acknowledgedBy, "Mike Ross");
+  assert.equal(hotelTask.acknowledgementText, "I'm on it.");
+  assert.ok(hotelTask.acknowledgementSpan);
+});
+
+test("distinguishes unassigned questions from unassigned imperative candidates", () => {
+  const result = extractActions([
+    "Maria: Can you send over the latest feature requests?",
+    "Ops: Please restart the staging service.",
+  ].join("\n"));
+
+  assert.equal(result.actions[0].classification, "unassigned_request");
+  assert.equal(result.actions[1].classification, "unassigned_action");
+  assert.equal(result.actions[0].owner, null);
+  assert.equal(result.actions[1].owner, null);
+});
+
+test("does not turn a teammate's offer to help into an assigned task", () => {
+  const result = analyzeConversations(
+    "[14:06, 12/10/2024] Sarah Chen: I can help review the deck."
+  );
+  assert.equal(result.actions.length, 0);
+});
+
+
+test("does not guess which task was acknowledged when the speaker name is ambiguous", () => {
+  const result = analyzeConversations([
+    "[14:00, 12/10/2024] Alex: Mike, please review the hotel quote.",
+    "[14:01, 12/10/2024] Sam: Mike, can you send the vendor comparison?",
+    "[14:02, 12/10/2024] Mike Ross: I'm on it.",
+  ].join("\n"));
+  assert.equal(result.actions.length, 2);
+  assert.equal(result.actions.some((item) => item.acknowledgedBy), false);
 });
