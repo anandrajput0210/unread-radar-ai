@@ -1,0 +1,8 @@
+[10:01, 05/11/2026] Ahmed Ali: Quick follow-up from the client call. We need to send the revised proposal and confirm the training date.
+[10:03, 05/11/2026] Ahmed Ali: Can someone send the revised proposal to the client by Friday?
+[10:05, 05/11/2026] Bella Martin: I can own the training schedule. I'll send two date options to the client by Wednesday noon.
+[10:07, 05/11/2026] Chris Wong: I won't contact the supplier until Legal approves the wording.
+[10:10, 05/11/2026] Ahmed Ali: Bella, please also add the confirmed training date to the project tracker once the client responds.
+[10:12, 05/11/2026] Bella Martin: Sure, I'll update the tracker after we get the client's reply.
+[10:16, 05/11/2026] Chris Wong: Legal approved the wording. I'll contact the supplier tomorrow morning and share the delivery estimate.
+[10:19, 05/11/2026] Ahmed Ali: Agreed decision: the training will be remote. No room booking is needed.

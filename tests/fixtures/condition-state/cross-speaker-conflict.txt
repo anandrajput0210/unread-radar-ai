@@ -1,0 +1,4 @@
+[09:00, 05/11/2026] Chris Wong: I won't contact the supplier until Legal approves the wording.
+[09:05, 05/11/2026] Legal Reviewer: Legal approves the wording.
+[09:12, 05/11/2026] Compliance Reviewer: The wording has not been approved.
+[09:20, 05/11/2026] Chris Wong: I'll contact the supplier tomorrow morning.

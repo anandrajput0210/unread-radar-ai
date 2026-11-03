@@ -1,0 +1,149 @@
+[
+  {
+    "id": "named-imperative",
+    "description": "A named colleague is directly instructed to do a task.",
+    "text": "Alex: Maria, please update the roadmap by Friday 5 PM.",
+    "actionCount": 1,
+    "firstOwner": "Maria",
+    "firstClassification": "assigned_task",
+    "firstDueDateStatus": "explicit"
+  },
+  {
+    "id": "named-question",
+    "description": "A question directly addressed to a named owner is an assigned request.",
+    "text": "Alex: Mike, can you review the vendor quote?",
+    "actionCount": 1,
+    "firstOwner": "Mike",
+    "firstClassification": "assigned_task"
+  },
+  {
+    "id": "generic-question",
+    "description": "A generic question without an explicit addressee remains unassigned.",
+    "text": "Maya: Can you send the latest report?",
+    "actionCount": 1,
+    "firstOwner": null,
+    "firstClassification": "unassigned_request"
+  },
+  {
+    "id": "unassigned-imperative",
+    "description": "An imperative with no identifiable owner remains an unassigned action.",
+    "text": "Ops: Please restart the staging service.",
+    "actionCount": 1,
+    "firstOwner": null,
+    "firstClassification": "unassigned_action"
+  },
+  {
+    "id": "explicit-deadline",
+    "description": "A deadline inside the requested action is classified explicit.",
+    "text": "Priya: Please submit the report by Friday.",
+    "actionCount": 1,
+    "firstDueDate": "Friday",
+    "firstDueDateStatus": "explicit"
+  },
+  {
+    "id": "contextual-deadline",
+    "description": "A separate timing clause in the same message is contextual.",
+    "text": "Alex: Mike, can you check hotel rates? We must finalize by Monday.",
+    "actionCount": 1,
+    "firstOwner": "Mike",
+    "firstDueDate": "Monday",
+    "firstDueDateStatus": "contextual"
+  },
+  {
+    "id": "date-without-action",
+    "description": "A calendar reference alone is not promoted to an action.",
+    "text": "Maya: The meeting is next Tuesday.",
+    "actionCount": 0
+  },
+  {
+    "id": "negated-action",
+    "description": "An explicit statement that no action is required is not a task.",
+    "text": "Sam: We do not need to redesign the dashboard today.",
+    "actionCount": 0
+  },
+  {
+    "id": "offer-to-help",
+    "description": "A teammate offering help is not treated as an assigned task.",
+    "text": "Sarah: I can help review the deck.",
+    "actionCount": 0
+  },
+  {
+    "id": "acknowledgement-only",
+    "description": "An acknowledgement without a visible prior task is not a new task.",
+    "text": "Mike Ross: I'm on it.",
+    "actionCount": 0
+  },
+  {
+    "id": "group-request",
+    "description": "A team-wide request is not assigned to an individual.",
+    "text": "Alex: Team, please review the launch plan.",
+    "actionCount": 1,
+    "firstOwner": null,
+    "firstClassification": "unassigned_action"
+  },
+  {
+    "id": "two-addressees",
+    "description": "Two explicit requests in one message remain separate tasks.",
+    "text": "Alex: Maria, update the deck. Mike, review the hotel quote.",
+    "actionCount": 2,
+    "owners": ["Maria", "Mike"]
+  },
+  {
+    "id": "high-urgency",
+    "description": "A critical outage is classified high urgency.",
+    "text": "Ops: Critical outage is blocking checkout. Investigate ASAP.",
+    "actionCount": 1,
+    "firstUrgency": "High",
+    "urgentRowCount": 1
+  },
+  {
+    "id": "negated-urgency",
+    "description": "Negated urgent language is not elevated.",
+    "text": "Ops: This is not urgent and no action is required.",
+    "actionCount": 0,
+    "urgentRowCount": 0
+  },
+  {
+    "id": "decision-only",
+    "description": "A labeled decision remains separate from an action item.",
+    "text": "Alex: Decision: proceed with the current launch plan.",
+    "actionCount": 0,
+    "decisionCount": 1
+  },
+  {
+    "id": "direct-handle-assignee",
+    "description": "A handle directly preceding a request can identify the assignee.",
+    "text": "Alex: @maria please review the copy.",
+    "actionCount": 1,
+    "firstOwner": "@maria",
+    "firstClassification": "assigned_task"
+  },
+  {
+    "id": "unrelated-handle",
+    "description": "An unrelated handle mention does not become the task owner.",
+    "text": "Maya: @ravi sent the file earlier. Please review the report.",
+    "actionCount": 1,
+    "firstOwner": null
+  },
+  {
+    "id": "action-label",
+    "description": "A labeled action item can be extracted from operational notes.",
+    "text": "Action item: send the signed PDF by 5 PM today.",
+    "actionCount": 1,
+    "firstDueDateStatus": "explicit"
+  },
+  {
+    "id": "duplicate-request",
+    "description": "An identical repeated task is deduplicated.",
+    "text": "Sam: Action item: send the final report by Friday.\nSam: Action item: send the final report by Friday.",
+    "actionCount": 1
+  },
+  {
+    "id": "speaker-is-not-owner",
+    "description": "A speaker name alone does not prove ownership of their request.",
+    "text": "Maria Garcia: Please review the roadmap by Thursday.",
+    "actionCount": 1,
+    "firstOwner": null,
+    "firstClassification": "unassigned_action"
+  }
+]

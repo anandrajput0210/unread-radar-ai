@@ -1,0 +1,775 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  AlertCircle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Bell,
+  CalendarClock,
+  Check,
+  CheckCheck,
+  ChevronDown,
+  ClipboardList,
+  Clock3,
+  Command,
+  Copy,
+  Cpu,
+  Download,
+  FileText,
+  Filter,
+  Hash,
+  LockKeyhole,
+  LoaderCircle,
+  MessageSquareText,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Upload,
+  Users,
+  X,
+} from "lucide-react";
+import {
+  MAX_ANALYSIS_CHARACTERS,
+  MODEL_ID,
+  analyzeTextLocally,
+  analyzeTextWithRules,
+  checkLocalModelSupport,
+  checkWebGPUCompatibility,
+  clearLegacySessionCache,
+  invalidateAnalysisWork,
+} from "./lib/localAiEngine.js";
+import { createEmptyAnalysis } from "./lib/analysisSchema.js";
+import { buildPriorityView } from "./lib/priorityView.js";
+import { createSourceSnapshot } from "./lib/sourceSnapshot.js";
+import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, updateTaskStatus } from "./lib/taskWorkflow.js";
+
+function cx(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function Badge({ children, tone = "slate", className = "" }) {
+  const tones = {
+    slate: "border-slate-600/60 bg-slate-800/70 text-slate-300",
+    green: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+    red: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+    amber: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+    blue: "border-cyan-400/30 bg-cyan-400/10 text-cyan-200",
+    violet: "border-violet-400/30 bg-violet-400/10 text-violet-200",
+  };
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", tones[tone] || tones.slate, className)}>
+      {children}
+    </span>
+  );
+}
+
+function SectionHeading({ eyebrow, title, description, action }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        {eyebrow && <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">{eyebrow}</p>}
+        <h2 className="text-lg font-bold tracking-tight text-white">{title}</h2>
+        {description && <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">{description}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function MetricCard({ icon: Icon, label, value, caption, tone = "blue" }) {
+  const styles = {
+    blue: "bg-cyan-400/10 text-cyan-200 ring-cyan-300/20 shadow-[0_0_28px_rgba(34,211,238,0.08)]",
+    rose: "bg-rose-400/10 text-rose-200 ring-rose-300/20 shadow-[0_0_28px_rgba(244,63,94,0.08)]",
+    violet: "bg-violet-400/10 text-violet-200 ring-violet-300/20 shadow-[0_0_28px_rgba(139,92,246,0.10)]",
+  };
+  return (
+    <div className="group rounded-2xl border border-slate-700/50 bg-slate-900/40 p-4 shadow-[0_12px_40px_rgba(2,6,23,0.22)] backdrop-blur-md transition-all duration-200 hover:-translate-y-1 hover:border-slate-600/80 hover:bg-slate-900/65 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-slate-400">{label}</p>
+          <p className="mt-2 text-3xl font-bold tracking-tight text-white tabular-nums">{value}</p>
+        </div>
+        <div className={cx("rounded-xl p-2.5 ring-1 transition-transform duration-200 group-hover:scale-110", styles[tone])}>
+          <Icon size={19} aria-hidden="true" />
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-500">{caption}</p>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon = FileText, title, description }) {
+  return (
+    <div className="flex min-h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-slate-950/35 px-6 py-8 text-center">
+      <div className="mb-3 rounded-xl bg-slate-900 p-3 text-slate-500 ring-1 ring-slate-700">
+        <Icon size={22} aria-hidden="true" />
+      </div>
+      <p className="font-semibold text-slate-200">{title}</p>
+      <p className="mt-1 max-w-sm text-sm leading-6 text-slate-400">{description}</p>
+    </div>
+  );
+}
+
+function urgencyTone(urgency) {
+  if (urgency === "High") return "red";
+  if (urgency === "Medium") return "amber";
+  return "slate";
+}
+
+function sourceReferenceLabel(finding) {
+  return finding?.sourceReferenceStatus === "valid"
+    ? "Source reference valid; semantic support unverified"
+    : "UNVERIFIED: no exact source reference";
+}
+
+function ProgressMeter({ meter }) {
+  const Icon = meter.icon;
+  return (
+    <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={cx("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", meter.toneClass)}>
+            <Icon size={17} aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-100">{meter.label}</p>
+            <p className="mt-0.5 text-xs leading-4 text-slate-400">{meter.description}</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-extrabold tabular-nums text-white">{meter.percent}%</p>
+          <p className="text-[11px] text-slate-400">{meter.count} / {meter.total} rows</p>
+        </div>
+      </div>
+      <div
+        className="mt-4 h-2.5 overflow-hidden rounded-full border border-slate-700/60 bg-slate-950/80"
+        role="progressbar"
+        aria-label={meter.label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={meter.percent}
+        aria-valuetext={`${meter.percent}% of ${meter.total} non-empty rows`}
+      >
+        <div className={cx("h-full rounded-full transition-[width] duration-700 ease-out", meter.fillClass, meter.glowClass)} style={{ width: `${meter.percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function describeImportWarnings(snapshot) {
+  const warnings = Array.isArray(snapshot?.importWarnings) ? snapshot.importWarnings : [];
+  if (!warnings.length) return "";
+  return ` Import check: ${warnings.map((warning) => warning.message).join(" ")}`;
+}
+
+export default function App() {
+  const [chatText, setChatText] = useState("");
+  const [activeTab, setActiveTab] = useState("summary");
+  const [taskStatuses, setTaskStatuses] = useState({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [urgencyFilter, setUrgencyFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [copied, setCopied] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [loadedFileName, setLoadedFileName] = useState("");
+  const [fileStatus, setFileStatus] = useState({ type: "", message: "" });
+  const [exportStatus, setExportStatus] = useState({ type: "", message: "" });
+  const [analysisStatus, setAnalysisStatus] = useState({ type: "", message: "" });
+  const [analysis, setAnalysis] = useState(createEmptyAnalysis);
+  const [hasAnalysis, setHasAnalysis] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [modelState, setModelState] = useState({ state: "not-loaded", progress: 0, message: "Model not loaded yet" });
+  const [sourceSnapshot, setSourceSnapshot] = useState(null);
+  const [dateOrderChoice, setDateOrderChoice] = useState("auto");
+  const [legacyCacheStatus, setLegacyCacheStatus] = useState({ type: "", message: "" });
+  const fileInputRef = useRef(null);
+  const chatTextareaRef = useRef(null);
+  const activeRunRef = useRef(0);
+  const legacyCleanupAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (legacyCleanupAttemptedRef.current) return;
+    legacyCleanupAttemptedRef.current = true;
+    const cleanup = clearLegacySessionCache();
+    if (!cleanup.success) {
+      setLegacyCacheStatus({
+        type: "error",
+        message: `The old session cache could not be confirmed as removed: ${cleanup.error}. Conversation analysis now uses memory-only caching; review this tab's site storage manually if needed.`,
+      });
+    } else if (cleanup.removed) {
+      setLegacyCacheStatus({ type: "success", message: "The legacy conversation-result cache entry was removed from this tab." });
+    }
+  }, []);
+
+  const runtimeSupport = checkLocalModelSupport();
+  const taskStatusCounts = countTaskStatuses(analysis.actions, taskStatuses);
+  const completedCount = taskStatusCounts.completed;
+  const priorityView = buildPriorityView(analysis);
+  const highAlerts = priorityView.counts.High;
+  const missedMentions = analysis.mentions.length;
+  const lineCount = analysis.lineCount;
+  const toPercent = (value, total) => total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+
+  const analyticsMeters = [
+    {
+      id: "urgent-lines",
+      label: "High-urgency rows",
+      count: analysis.urgentRows.length,
+      total: lineCount,
+      percent: toPercent(analysis.urgentRows.length, lineCount),
+      description: "Rows flagged by local AI and rule checks",
+      fillClass: "bg-rose-400",
+      glowClass: "shadow-[0_0_15px_rgba(244,63,94,0.38)]",
+      icon: AlertCircle,
+      toneClass: "bg-rose-400/10 text-rose-200",
+    },
+    {
+      id: "action-items",
+      label: "Action items",
+      count: analysis.actions.length,
+      total: lineCount,
+      percent: toPercent(analysis.actions.length, lineCount),
+      description: "Task candidates from local AI and rule checks",
+      fillClass: "bg-indigo-400",
+      glowClass: "shadow-[0_0_15px_rgba(99,102,241,0.4)]",
+      icon: ClipboardList,
+      toneClass: "bg-indigo-400/10 text-indigo-200",
+    },
+    {
+      id: "deadline-rows",
+      label: "Deadline signals",
+      count: analysis.deadlines.length,
+      total: lineCount,
+      percent: toPercent(analysis.deadlines.length, lineCount),
+      description: "Rows with possible dates or time references",
+      fillClass: "bg-amber-300",
+      glowClass: "shadow-[0_0_15px_rgba(252,211,77,0.35)]",
+      icon: CalendarClock,
+      toneClass: "bg-amber-300/10 text-amber-200",
+    },
+  ];
+
+  const filteredActions = analysis.actions.filter((task) => {
+    const matchesSearch = task.text.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesUrgency = urgencyFilter === "All" || task.urgency === urgencyFilter;
+    const matchesStatus = statusFilter === "All" || getTaskStatus(taskStatuses, task.id) === statusFilter;
+    return matchesSearch && matchesUrgency && matchesStatus;
+  });
+
+  function resetAnalysis() {
+    // Invalidate async work before clearing data so late completions cannot repopulate the cache.
+    activeRunRef.current += 1;
+    invalidateAnalysisWork();
+    setSourceSnapshot(null);
+    setAnalysis(createEmptyAnalysis());
+    setHasAnalysis(false);
+    setTaskStatuses({});
+    setActiveTab("summary");
+    setSearchQuery("");
+    setUrgencyFilter("All");
+    setStatusFilter("All");
+    setExportStatus({ type: "", message: "" });
+    setAnalysisStatus({ type: "", message: "" });
+  }
+
+  function handleTextChange(value) {
+    setChatText(value);
+    setLoadedFileName("");
+    setFileStatus({ type: "", message: "" });
+    resetAnalysis();
+  }
+
+  function handleLocalFile(file) {
+    setFileStatus({ type: "", message: "" });
+    if (isAnalyzing) {
+      setFileStatus({ type: "error", message: "Wait for the current local analysis to finish before loading another file." });
+      return;
+    }
+    if (!file) return;
+
+    const name = file.name.toLowerCase();
+    const supported = name.endsWith(".txt") || name.endsWith(".log");
+    const maxBytes = 5 * 1024 * 1024;
+
+    if (!supported) {
+      setFileStatus({ type: "error", message: "Unsupported file type. Choose a .txt or .log file." });
+      return;
+    }
+    if (file.size > maxBytes) {
+      setFileStatus({ type: "error", message: "The file exceeds the 5 MB upload limit. Choose a smaller text log." });
+      return;
+    }
+    if (typeof FileReader === "undefined") {
+      setFileStatus({ type: "error", message: "FileReader is unavailable in this browser." });
+      return;
+    }
+
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (isAnalyzing) {
+          setFileStatus({ type: "error", message: "A file finished reading while analysis was running. Wait for analysis to finish, then load it again." });
+          return;
+        }
+        if (typeof reader.result !== "string") {
+          setFileStatus({ type: "error", message: "The file did not decode as text. Try UTF-8 plain text." });
+          return;
+        }
+        setChatText(reader.result);
+        setLoadedFileName(file.name);
+        resetAnalysis();
+        setFileStatus({ type: "success", message: `Loaded ${file.name} locally. Run local AI analysis when ready.` });
+      };
+      reader.onerror = () => setFileStatus({ type: "error", message: "The selected file could not be read." });
+      reader.onabort = () => setFileStatus({ type: "error", message: "File reading was cancelled." });
+      reader.readAsText(file, "UTF-8");
+    } catch {
+      setFileStatus({ type: "error", message: "Unable to open this file. Try another text log." });
+    }
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    setIsDragging(false);
+    if (isAnalyzing) {
+      setFileStatus({ type: "error", message: "Wait for the current local analysis to finish before dropping another file." });
+      return;
+    }
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) {
+      setFileStatus({ type: "error", message: "No file was detected. Drop a .txt or .log file here." });
+      return;
+    }
+    handleLocalFile(file);
+  }
+
+  async function runAnalysis(options = {}) {
+    const forceFresh = options?.forceFresh === true;
+    const source = chatText;
+    if (!source.trim()) {
+      setAnalysisStatus({ type: "error", message: "Paste or upload a chat log before running analysis." });
+      return;
+    }
+    if (source.length > MAX_ANALYSIS_CHARACTERS) {
+      setAnalysisStatus({ type: "error", message: `This log is too large for a safe interactive run (${source.length.toLocaleString()} characters). Split it into smaller files or keep it under ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} characters.` });
+      return;
+    }
+
+    const runId = ++activeRunRef.current;
+    const startedAt = Date.now();
+    const modelWasReady = modelState.state === "ready";
+    let usedCachedResult = false;
+
+    setIsAnalyzing(true);
+    setHasAnalysis(false);
+    setAnalysis(createEmptyAnalysis());
+    setSourceSnapshot(null);
+    setAnalysisStatus({ type: "progress", message: "Preserving source text and validating local processing support…" });
+
+    try {
+      const requestedOrder = options?.dateOrder ?? dateOrderChoice;
+      const snapshot = await createSourceSnapshot(source, { dateOrder: requestedOrder === "auto" ? undefined : requestedOrder });
+      if (runId !== activeRunRef.current) return;
+      setSourceSnapshot(snapshot);
+
+      const webGpu = await checkWebGPUCompatibility();
+      if (runId !== activeRunRef.current) return;
+
+      if (!webGpu.supported) {
+        const result = await analyzeTextWithRules(source, { sourceSnapshot: snapshot });
+        if (runId !== activeRunRef.current) return;
+        const boundaryNote = snapshot.boundaryMode === "opaque"
+          ? " This import has no reliably recognized speaker boundaries, so it is treated as one source message; author and timestamp remain unknown and message-level granularity is reduced."
+          : ` ${snapshot.messages.length} messages recognized (${snapshot.dialect}); extracted interpretations still require human review.`;
+        const importNote = describeImportWarnings(snapshot);
+        setAnalysis(result);
+        setHasAnalysis(true);
+        setTaskStatuses({});
+        setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
+        setAnalysisStatus({
+          type: "warning",
+          message: `WebGPU unavailable; rules-only fallback completed. Coverage is limited to deterministic local patterns, not language-model understanding.${boundaryNote}${importNote}`,
+        });
+        setActiveTab("summary");
+        return;
+      }
+
+      setAnalysisStatus({
+        type: "progress",
+        message: modelWasReady ? "Analyzing conversation on this device…" : "Loading the local model for its first use…",
+      });
+      if (!modelWasReady) {
+        setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
+      }
+
+      const result = await analyzeTextLocally(source, (event) => {
+        if (runId !== activeRunRef.current) return;
+        if (event.cached) usedCachedResult = true;
+        if (event.stage === "model") {
+          const progress = typeof event.progress === "number" ? Math.round(event.progress * 100) : 0;
+          setModelState({ state: "loading", progress: Math.max(0, Math.min(100, progress)), message: event.message || "Downloading and initializing local model" });
+          setAnalysisStatus({ type: "progress", message: event.message || "Preparing local AI model" });
+        } else {
+          setModelState((current) => ({ ...current, state: "ready", progress: 100, message: "Local model ready" }));
+          setAnalysisStatus({ type: "progress", message: event.message || "Analyzing conversation locally" });
+        }
+      }, { forceFresh, sourceSnapshot: snapshot });
+
+      if (runId !== activeRunRef.current) return;
+      const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      const segmentCount = Number.isFinite(result.sourceChunks) ? result.sourceChunks : 1;
+      const inferenceCompleted = result.modelExecution?.status === "completed";
+      setAnalysis(result);
+      setHasAnalysis(true);
+      setTaskStatuses({});
+      setModelState({
+        state: inferenceCompleted ? "ready" : "rules-only",
+        progress: inferenceCompleted ? 100 : 0,
+        message: inferenceCompleted ? "Local model inference completed" : "Rules-only result; model inference not confirmed",
+      });
+      const granularityNote = (snapshot.boundaryMode === "opaque"
+        ? " Source boundaries were not recognizable; this import is represented as one source message with unknown author/time."
+        : ` ${snapshot.messages.length} source messages recognized.`) + describeImportWarnings(snapshot);
+      const inferenceNote = usedCachedResult
+        ? (inferenceCompleted ? "Cached result reused; Qwen inference completed on the original run" : "Cached result reused")
+        : inferenceCompleted
+          ? `Qwen inference completed · ${result.modelExecution.structuredResponsesValidated} structured response${result.modelExecution.structuredResponsesValidated === 1 ? "" : "s"} validated`
+          : "Rules-only analysis completed; Qwen inference did not run";
+      setAnalysisStatus({
+        type: inferenceCompleted && !(snapshot.importWarnings || []).some((w) => w.severity === "error") ? "success" : "warning",
+        message: `${inferenceNote} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.${granularityNote}`,
+      });
+      setActiveTab("summary");
+    } catch (error) {
+      if (runId !== activeRunRef.current) return;
+      if (!modelWasReady) {
+        setModelState((current) => ({ ...current, state: "error", message: "Local model unavailable" }));
+      }
+      setAnalysisStatus({ type: "error", message: error instanceof Error ? error.message : "Local analysis failed. Check WebGPU support and try again." });
+    } finally {
+      if (runId === activeRunRef.current) setIsAnalyzing(false);
+    }
+  }
+
+  function changeTaskStatus(id, nextStatus) {
+    setTaskStatuses((current) => updateTaskStatus(current, id, nextStatus));
+  }
+
+  function showSourceInInput(reference) {
+    if (!reference || reference.snapshotId !== sourceSnapshot?.snapshotId || !Number.isSafeInteger(reference.startOffset) || !Number.isSafeInteger(reference.endOffset)) {
+      setAnalysisStatus({ type: "warning", message: "This source reference is unavailable or belongs to an older chat snapshot." });
+      return;
+    }
+    const textarea = chatTextareaRef.current;
+    if (!textarea) return;
+    textarea.scrollIntoView({ behavior: "smooth", block: "center" });
+    textarea.focus();
+    textarea.setSelectionRange(reference.startOffset, reference.endOffset);
+  }
+
+  function downloadExecutiveBrief() {
+    setExportStatus({ type: "", message: "" });
+    if (!chatText.trim() || !hasAnalysis) {
+      setExportStatus({ type: "error", message: "Run local AI analysis before exporting the brief." });
+      return;
+    }
+
+    const generatedAt = new Date().toLocaleString();
+    const prioritySummary = buildPriorityView(analysis);
+    const taskLines = analysis.actions.length
+      ? analysis.actions.map((task) => {
+          const due = task.dueDate
+            ? task.dueDateStatus === "contextual"
+              ? ` · Contextual timing (verify): ${task.dueDate}`
+              : task.dueDateStatus === "explicit"
+                ? ` · Explicit deadline: ${task.dueDate}`
+                : ` · Unverified due signal: ${task.dueDate}`
+            : "";
+          const owner = task.owner
+            ? ` · Assigned to: ${task.owner}`
+            : task.classification === "unassigned_request"
+              ? " · Unassigned request"
+              : " · Owner not explicit";
+          const confidence = typeof task.confidence === "number" ? ` · Confidence: ${Math.round(task.confidence * 100)}%` : "";
+          const evidence = task.sourceEvidence?.quote
+            ? `\n  - Exact source span (${sourceReferenceLabel(task)}): ${task.sourceEvidence.quote}`
+            : `\n  - ${sourceReferenceLabel(task)}${task.evidence ? `; model-provided excerpt (unverified): ${task.evidence}` : ""}`;
+          const conditionStatusLabel = task.conditionStatus === "reported_satisfied"
+            ? "Condition reported satisfied"
+            : task.conditionStatus === "reported_rejected"
+              ? "Condition reported rejected"
+              : task.conditionStatus === "ambiguous"
+                ? "Condition status ambiguous"
+                : "Condition pending verification";
+          const condition = task.condition ? ` · ${conditionStatusLabel}: ${task.condition}` : "";
+          const supporting = task.supportingEvidence?.length
+            ? task.supportingEvidence.map((detail) => `\n  - ${detail.kind || "Related context"} (${detail.sourceReferenceStatus || "unverified"}): ${detail.evidence?.quote || detail.text}`).join("")
+            : "";
+          return `- **${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, task.id)]}** · **${task.urgency}** — ${task.text}${due}${owner}${condition}${confidence}${evidence}${supporting}`;
+        })
+      : ["- No action items were extracted."];
+    const urgentLines = analysis.urgentRows.length
+      ? analysis.urgentRows.map((row) => `> ${row.text}${row.reason ? ` — ${row.reason}` : ""}\n> ${sourceReferenceLabel(row)}${row.sourceEvidence?.quote ? ` · Exact source: ${row.sourceEvidence.quote}` : ""}`)
+      : ["> No high-urgency rows were extracted."];
+    const mentionLines = analysis.mentions.length
+      ? analysis.mentions.map((mention) => `- **@${mention.handle}** — ${mention.line}\n  - ${sourceReferenceLabel(mention)}${mention.sourceEvidence?.quote ? ` · Exact source: ${mention.sourceEvidence.quote}` : ""}`)
+      : ["- No direct mentions were extracted."];
+    const deadlineLines = analysis.deadlines.length
+      ? analysis.deadlines.map((deadline) => `- **${deadline.dates.join(", ") || "Time reference"}** — ${deadline.text}\n  - ${sourceReferenceLabel(deadline)}${deadline.sourceEvidence?.quote ? ` · Exact source: ${deadline.sourceEvidence.quote}` : ""}`)
+      : ["- No deadline signals were extracted."];
+    const decisionLines = analysis.decisions.length
+      ? analysis.decisions.map((decision) => {
+          const finding = analysis.decisionFindings?.find((item) => item.text === decision);
+          return `- ${decision}\n  - ${sourceReferenceLabel(finding)}`;
+        })
+      : ["- No decisions were extracted."];
+
+    const markdown = [
+      "# Unread Radar AI — Local Executive Brief",
+      "",
+      `- **Generated:** ${generatedAt}`,
+      `- **Source:** ${loadedFileName || "Pasted conversation"}`,
+      `- **Model:** ${analysis.modelId || MODEL_ID}`,
+      `- **Processing:** ${analysis.modelExecution?.status === "completed" ? "On-device WebLLM/WebGPU inference combined with local rules" : "Local deterministic rules only; limited pattern coverage; no successful model inference recorded"}; chat content is not sent to a hosted AI API`,
+      `- **Inference execution:** ${analysis.modelExecution?.status === "completed" ? `${analysis.modelExecution.modelId}; ${analysis.modelExecution.structuredResponsesValidated}/${analysis.modelExecution.segmentsRequested} structured model responses validated` : "No successful Qwen inference recorded; rules-only results must not be described as model output"}`,
+      `- **Source structure:** ${analysis.sourceBoundaryMode === "opaque" ? "One opaque source message; author/timestamp unknown; reduced message-level granularity" : `${analysis.sourceMessageCount} recognized source records`}`,
+      "- **Evidence semantics:** Valid source references confirm the exact source location and quotation only; semantic support is unverified.",
+      "",
+      "## Executive Summary",
+      "",
+      ...(analysis.summary.length ? analysis.summary.map((item) => `- ${item}`) : ["- No summary was returned by the local model."]),
+      "",
+      "## Operational Index Analytics",
+      "",
+      `- **Non-empty rows:** ${analysis.lineCount}`,
+      `- **Unique priority items:** ${prioritySummary.uniquePriorityCount} (${prioritySummary.uniqueTaskCount} task candidates + ${prioritySummary.standaloneSignalCount} standalone source signals)`,
+      `- **Supporting signals attached to task messages:** ${prioritySummary.linkedSignalCount} (not counted again as separate priority items)`,
+      `- **High-priority unique items:** ${prioritySummary.counts.High}`,
+      `- **High-urgency source rows:** ${analysis.urgentRows.length} (${toPercent(analysis.urgentRows.length, lineCount)}%)`,
+      `- **Action items:** ${analysis.actions.length} (${toPercent(analysis.actions.length, lineCount)}% of rows)`,
+      `- **Missed mentions:** ${analysis.mentions.length}`,
+      "",
+      "## Action Items",
+      "",
+      ...taskLines,
+      "",
+      "## High-Urgency Rows",
+      "",
+      ...urgentLines,
+      "",
+      "## Mentions",
+      "",
+      ...mentionLines,
+      "",
+      "## Deadlines and Scheduling Signals",
+      "",
+      ...deadlineLines,
+      "",
+      "## Decisions",
+      "",
+      ...decisionLines,
+      "",
+      "---",
+      analysis.analysisMode === "rules-only"
+        ? "Generated by Unread Radar AI using deterministic local rules only. Pattern coverage is limited; verify every finding against the source."
+        : "Generated by Unread Radar AI using a language model running locally in the browser plus local rules. AI extraction may be wrong; verify important items against the source.",
+      "",
+    ].join("\n");
+
+    let objectUrl = "";
+    let anchor = null;
+    try {
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      objectUrl = URL.createObjectURL(blob);
+      anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = "unread-radar-brief.md";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      setExportStatus({ type: "success", message: "Local executive brief downloaded as unread-radar-brief.md." });
+    } catch {
+      setExportStatus({ type: "error", message: "The report could not be downloaded in this browser." });
+    } finally {
+      if (anchor?.parentNode) anchor.parentNode.removeChild(anchor);
+      if (objectUrl) window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+  }
+
+  async function copySummary() {
+    const content = [
+      "UNREAD RADAR AI — LOCAL SUMMARY",
+      "",
+      ...analysis.summary.map((item) => `• ${item}`),
+      "",
+      "ACTION ITEMS",
+      ...analysis.actions.map((item) => `• [${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, item.id)]}] [${item.urgency}] ${item.text} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`),
+      "",
+      "DECISIONS",
+      ...analysis.decisions.map((item) => `• ${item}`),
+    ].join("\n");
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        const element = document.createElement("textarea");
+        element.value = content;
+        element.setAttribute("readonly", "");
+        element.style.position = "fixed";
+        element.style.opacity = "0";
+        document.body.appendChild(element);
+        element.select();
+        const success = document.execCommand("copy");
+        document.body.removeChild(element);
+        if (!success) throw new Error("Clipboard copy was blocked");
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+      setAnalysisStatus({ type: "error", message: "Clipboard access was blocked. Select and copy the results manually." });
+    }
+  }
+
+  const tabs = [
+    { id: "summary", label: "Catch-up summary", icon: Sparkles, count: analysis.summary.length },
+    { id: "tasks", label: "Action items", icon: ClipboardList, count: analysis.actions.length },
+    { id: "matrix", label: "Priority view", icon: Target, count: priorityView.uniquePriorityCount },
+  ];
+
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 selection:bg-cyan-300/30 selection:text-white">
+      <div className="pointer-events-none fixed inset-0 -z-0 opacity-[0.16]" aria-hidden="true" style={{ backgroundImage: "linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px)", backgroundSize: "42px 42px" }} />
+      <div className="pointer-events-none fixed -left-48 top-0 -z-0 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none fixed -right-40 top-24 -z-0 h-[32rem] w-[32rem] rounded-full bg-indigo-500/15 blur-3xl" aria-hidden="true" />
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pb-12 pt-5 sm:px-6 lg:px-8">
+        <header className="flex flex-col gap-5 border-b border-slate-700/50 pb-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/20 bg-slate-900/80 text-cyan-200 shadow-[0_0_28px_rgba(34,211,238,0.15)]"><Command size={22} strokeWidth={2.2} aria-hidden="true" /></div>
+            <div>
+              <div className="flex items-center gap-2"><p className="text-lg font-extrabold tracking-tight text-white">unread radar</p><Badge tone="violet">ProtocolX</Badge></div>
+              <p className="text-xs font-medium text-slate-400">On-device conversation intelligence</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="green"><ShieldCheck size={14} aria-hidden="true" /> Chat stays on device</Badge>
+            <Badge tone={modelState.state === "ready" ? "green" : modelState.state === "error" ? "red" : modelState.state === "rules-only" ? "amber" : "blue"}><Cpu size={14} aria-hidden="true" /> {modelState.state === "ready" ? "Local model ready" : modelState.state === "loading" ? "Loading model" : modelState.state === "error" ? "Model needs attention" : modelState.state === "rules-only" ? "Rules-only fallback active" : "Local model not loaded"}</Badge>
+          </div>
+        </header>
+
+        <main>
+          <section className="grid gap-8 py-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-end">
+            <div>
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-cyan-200 shadow-[0_0_25px_rgba(34,211,238,0.08)]"><Sparkles size={14} aria-hidden="true" /> Local AI workspace</div>
+              <h1 className="max-w-2xl text-3xl font-extrabold leading-tight tracking-tight text-white sm:text-4xl lg:text-[2.7rem]">Catch up on what <span className="block bg-gradient-to-r from-cyan-200 via-indigo-300 to-violet-300 bg-clip-text text-transparent">actually matters.</span></h1>
+              <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">Extract tasks, decisions, deadlines, mentions, and urgency from raw conversations using a language model that runs in your browser.</p>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs font-medium text-slate-300">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-900/55 px-2.5 py-2"><LockKeyhole size={14} className="text-emerald-300" /> Local inference</span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-900/55 px-2.5 py-2"><Activity size={14} className="text-cyan-300" /> Context-aware extraction</span>
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-900/55 px-2.5 py-2"><CheckCheck size={14} className="text-violet-300" /> Task tracking</span>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-indigo-300/15 bg-slate-900/45 p-4 shadow-[0_20px_60px_rgba(2,6,23,0.25)] backdrop-blur-xl sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-300/20"><Cpu size={19} aria-hidden="true" /></div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-bold text-white">On-device model</h2>
+                  <p className="mt-1 break-all text-xs leading-5 text-slate-400">{MODEL_ID}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={runtimeSupport.supported ? "green" : "red"}>{runtimeSupport.supported ? "WebGPU API present" : "Rules-only fallback available"}</Badge><Badge tone="slate">No chat API</Badge></div>
+                </div>
+              </div>
+              {modelState.state === "loading" && <div className="mt-4"><div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-400"><span>{modelState.message}</span><span className="tabular-nums">{modelState.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-400 transition-[width] duration-300" style={{ width: `${modelState.progress}%` }} /></div></div>}
+              <p className="mt-4 text-xs leading-5 text-slate-400">First use downloads model weights and caches them in the browser. This may take time and requires WebGPU-compatible hardware. Your chat text is processed locally and is not sent to the model host.</p>
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
+            <div className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log. No sample conversations are preloaded.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Raw conversation text, source snapshots, excerpts, and findings remain memory-only. Up to three analysis results may be cached in memory until cleared or the page is closed. Unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
+                <Badge tone="green"><LockKeyhole size={12} /> Local</Badge>
+              </div>
+              <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
+                <input ref={fileInputRef} type="file" accept=".txt,.log,text/plain" className="sr-only" aria-label="Choose a local .txt or .log chat file" disabled={isAnalyzing} onChange={(event) => { handleLocalFile(event.target.files?.[0]); event.target.value = ""; }} />
+                <div className="flex flex-col items-center justify-center gap-2 text-center sm:flex-row sm:text-left"><span className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", isDragging ? "bg-cyan-300 text-slate-950" : "bg-slate-900 text-cyan-200 ring-1 ring-slate-700")}><Upload size={21} aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-200">Drop a .txt or .log file here</p><p className="mt-1 text-xs leading-5 text-slate-400">Read locally in the browser · 5 MB file limit</p>{loadedFileName && <p className="mt-1 truncate text-xs font-semibold text-emerald-300">Loaded: {loadedFileName}</p>}</div><button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"><FileText size={14} aria-hidden="true" /> Browse files</button></div>
+                {fileStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2 text-xs leading-5", fileStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={fileStatus.type === "error" ? "alert" : "status"} aria-live="polite">{fileStatus.message}</p>}
+              </div>
+              <label htmlFor="chat-log" className="mb-2 block text-sm font-semibold text-slate-200">Chat log</label>
+              <textarea ref={chatTextareaRef} id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
+              <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
+                {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
+                {isAnalyzing ? "Analyzing locally…" : modelState.state === "rules-only" ? "Run rules-only analysis" : hasAnalysis ? "Analyze again" : modelState.state === "ready" ? "Analyze with local AI" : "Analyze locally"}
+              </button>
+              {hasAnalysis && !isAnalyzing && <button type="button" onClick={() => runAnalysis({ forceFresh: true })} disabled={!chatText.trim()} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">Run fresh analysis (skip cache)</button>}
+              {analysisStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2.5 text-xs leading-5", analysisStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : analysisStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : analysisStatus.type === "warning" ? "bg-amber-300/10 text-amber-100" : "bg-cyan-300/10 text-cyan-100")} role={analysisStatus.type === "error" ? "alert" : "status"} aria-live="polite">{analysisStatus.message}</p>}
+              {sourceSnapshot?.importWarnings?.length > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-300/5 px-3 py-2.5 text-xs leading-5 text-amber-100" role="group" aria-label="Import review">
+                  <p className="font-semibold">Import review</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                    {sourceSnapshot.importWarnings.map((warning) => <li key={warning.code}>{warning.message}</li>)}
+                  </ul>
+                  {sourceSnapshot.importWarnings.some((warning) => warning.code.startsWith("DATE_ORDER")) && (
+                    <label className="mt-2 flex flex-wrap items-center gap-2">
+                      <span>Date order in this chat:</span>
+                      <select
+                        className="rounded border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                        value={dateOrderChoice}
+                        disabled={isAnalyzing}
+                        onChange={(event) => { setDateOrderChoice(event.target.value); runAnalysis({ forceFresh: true, dateOrder: event.target.value }); }}
+                      >
+                        <option value="auto">Auto-detect</option>
+                        <option value="dmy">Day / Month (DD/MM)</option>
+                        <option value="mdy">Month / Day (MM/DD)</option>
+                      </select>
+                    </label>
+                  )}
+                </div>
+              )}
+              {legacyCacheStatus.message && <p className={cx("mt-2 rounded-lg px-3 py-2 text-xs leading-5", legacyCacheStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={legacyCacheStatus.type === "error" ? "alert" : "status"}>{legacyCacheStatus.message}</p>}
+              {hasAnalysis && sourceSnapshot && <p className="mt-2 rounded-lg border border-slate-700/60 bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">Source snapshot: {sourceSnapshot.messages.length} {sourceSnapshot.messages.length === 1 ? "message" : "messages"} · {sourceSnapshot.boundaryMode === "opaque" ? "Opaque import; reduced message-level granularity; author and timestamp unknown" : "Recognized source records; original order preserved"}.</p>}
+              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">When WebGPU is available, the first model run downloads model weights and performs inference on this device. If WebGPU adapter/device setup fails, rules-only mode uses local patterns instead. Conversation contents are not posted to a cloud AI endpoint.</p></div></div></div>
+            </div>
+
+            <div className="min-w-0 space-y-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><MetricCard icon={Bell} label="Priority items" value={hasAnalysis ? priorityView.uniquePriorityCount : "—"} caption={hasAnalysis ? `${analysis.actions.length} task candidates · ${priorityView.standaloneSignalCount} standalone signals · ${highAlerts} high` : "Run local analysis to calculate"} tone="rose" /><MetricCard icon={ClipboardList} label="Extracted tasks" value={hasAnalysis ? analysis.actions.length : "—"} caption={hasAnalysis ? `${taskStatusCounts["needs-review"]} need review · ${completedCount} completed` : "Generated from your chat"} tone="blue" /><MetricCard icon={Hash} label="Mentions" value={hasAnalysis ? missedMentions : "—"} caption="Direct handles identified locally" tone="violet" /></div>
+
+              <section className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5" aria-labelledby="operational-index-heading">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-indigo-300">Live metrics</p><h2 id="operational-index-heading" className="text-lg font-bold tracking-tight text-white">Operational Index Analytics</h2><p className="mt-1 text-xs leading-5 text-slate-400">Metrics reflect the current local analysis; rules-only fallback coverage is limited.</p></div><button type="button" onClick={downloadExecutiveBrief} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-300/30 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-[0_0_28px_rgba(99,102,241,0.24)] transition-all hover:-translate-y-0.5 hover:from-indigo-400 hover:via-violet-400 hover:to-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"><Download size={15} aria-hidden="true" /> Download Local Executive Brief (.md)</button></div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">{analyticsMeters.map((meter) => <ProgressMeter key={meter.id} meter={meter} />)}</div>
+                {exportStatus.message && <p className={cx("mt-4 rounded-lg px-3 py-2 text-xs leading-5", exportStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={exportStatus.type === "error" ? "alert" : "status"} aria-live="polite">{exportStatus.message}</p>}
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/45 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl">
+                <div className="border-b border-slate-700/50 px-4 pt-4 sm:px-5"><SectionHeading eyebrow="Your catch-up brief" title="Signal over noise" description="Summary items are derived from deterministic local checks. Exact source-reference validity is tracked separately from whether an interpretation is correct." action={<button type="button" onClick={copySummary} disabled={!hasAnalysis} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy brief"}</button>} />
+                  <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[11px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
+                </div>
+                <div className="p-4 sm:p-5">
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
+                      <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
+                    <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}
+
+                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run local AI analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div></div>
+                    {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
+                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const status = getTaskStatus(taskStatuses, task.id); return <article key={task.id} className={cx("group rounded-2xl border p-4 shadow-[0_14px_36px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(2,6,23,0.26)]", status === "completed" ? "border-emerald-300/20 bg-emerald-400/[0.05]" : status === "rejected" ? "border-rose-300/20 bg-rose-400/[0.04]" : "border-slate-700/60 bg-slate-950/30 hover:border-indigo-300/30 hover:bg-slate-950/55")}><div className="flex flex-col gap-3 sm:flex-row sm:items-start"><div className="min-w-0 flex-1"><p className={cx("text-sm leading-6", status === "completed" || status === "rejected" ? "text-slate-400" : "text-slate-100")}>{task.text}</p><div className="mt-2 flex flex-wrap items-center gap-2"><Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge><span className="text-xs text-slate-400">{task.classification === "self_commitment" ? `Self-commitment · ${task.owner || "speaker"}` : task.owner ? `Assigned task · ${task.owner}` : task.classification === "unassigned_request" ? "Unassigned request · no owner stated" : task.classification === "unassigned_action" ? "Unassigned action · no owner stated" : task.classification === "model_candidate" ? "Model suggestion · verify details" : "Unclassified candidate · verify owner"}</span>{task.acknowledgedBy && <span className="text-xs font-semibold text-emerald-300">Acknowledged by {task.acknowledgedBy}</span>}{task.dueDate && <span className={cx("text-xs", task.dueDateStatus === "contextual" ? "text-amber-200" : task.dueDateStatus === "explicit" ? "text-cyan-200" : "text-slate-400")}>{task.dueDateStatus === "contextual" ? `Contextual timing · verify: ${task.dueDate}` : task.dueDateStatus === "explicit" ? `Explicit deadline: ${task.dueDate}` : `Unverified due signal: ${task.dueDate}`}</span>}{task.condition && <span className={cx("text-xs", task.conditionStatus === "reported_satisfied" ? "text-emerald-200" : task.conditionStatus === "reported_rejected" ? "text-rose-200" : task.conditionStatus === "ambiguous" ? "text-orange-200" : "text-amber-200")}>{task.conditionStatus === "reported_satisfied" ? `Condition reported satisfied: ${task.condition}` : task.conditionStatus === "reported_rejected" ? `Condition reported rejected: ${task.condition}` : task.conditionStatus === "ambiguous" ? `Condition status ambiguous: ${task.condition}` : `Condition pending verification: ${task.condition}`}</span>}{typeof task.confidence === "number" && <span className="text-xs text-slate-500">Model confidence {Math.round(task.confidence * 100)}%</span>}</div><p className="mt-2 text-xs leading-5 text-slate-500">{task.sourceReferenceStatus === "valid" ? "Exact source reference validated · meaning still needs human review" : "No verified source reference · treat this as an unverified candidate"}</p>{task.sourceEvidence?.quote ? <div className="mt-2 rounded-xl border border-l-2 border-cyan-300/30 border-l-cyan-300/60 bg-slate-950/65 px-3 py-3 shadow-inner shadow-slate-950/30"><blockquote className="text-xs leading-5 text-slate-300">{task.sourceEvidence.quote}</blockquote><button type="button" onClick={() => showSourceInInput(task.sourceEvidence)} className="mt-2 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Show original in chat</button>{task.acknowledgementEvidence?.quote && <div className="mt-2 border-t border-emerald-300/15 pt-2"><p className="text-[11px] text-emerald-200">Acknowledgement: {task.acknowledgementEvidence.quote}</p><button type="button" onClick={() => showSourceInInput(task.acknowledgementEvidence)} className="mt-1 text-[11px] font-bold text-emerald-200 underline decoration-emerald-200/40 underline-offset-2 hover:text-emerald-100">Show acknowledgement in chat</button></div>}</div> : task.evidence && <p className="mt-2 text-xs leading-5 text-slate-500">Model excerpt (unverified): {task.evidence}</p>}{task.supportingEvidence?.length > 0 && <div className="mt-2 space-y-2 rounded-xl border border-violet-300/20 bg-violet-300/[0.045] px-3 py-3 shadow-inner shadow-slate-950/20"><p className="text-[11px] font-bold uppercase tracking-wider text-violet-200">Related conversation context</p>{task.supportingEvidence.map((detail, index) => <div key={`${task.id}-support-${index}`} className="border-t border-violet-300/10 pt-2 first:border-0 first:pt-0"><p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-violet-200">{detail.kind === "precondition-context" ? "Original condition" : detail.kind === "condition-resolution:reported_satisfied" ? "Condition satisfaction evidence" : detail.kind === "condition-resolution:reported_rejected" ? "Condition rejection evidence" : detail.kind === "condition-resolution:ambiguous" ? "Conflicting condition evidence" : detail.kind === "condition-resolution:pending_verification" ? "Condition status evidence" : detail.kind === "condition-resolution:superseded:reported_satisfied" ? "Earlier approval (superseded)" : detail.kind === "condition-resolution:superseded:reported_rejected" ? "Earlier rejection (superseded)" : detail.kind || "Related message"}</p><blockquote className="text-xs leading-5 text-slate-300">{detail.evidence?.quote || detail.text}</blockquote>{detail.evidence?.quote && detail.sourceReferenceStatus === "valid" && <button type="button" onClick={() => showSourceInInput(detail.evidence)} className="mt-1 text-[11px] font-bold text-violet-200 underline decoration-violet-200/40 underline-offset-2 hover:text-violet-100">Show related message in chat</button>}</div>)}</div>}</div><div className="w-full shrink-0 sm:w-40"><label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500" htmlFor={`task-status-${task.id}`}>Review status</label><select id={`task-status-${task.id}`} value={status} onChange={(event) => changeTaskStatus(task.id, event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-2.5 py-2 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-2 focus:ring-cyan-300/15">{TASK_STATUSES.map((item) => <option key={item} value={item}>{TASK_STATUS_LABELS[item]}</option>)}</select></div></div></article>; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
+                    {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review changes last for this page session.</p>}</>}</div>}
+
+                  {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Priority view is waiting" description="Run local analysis to identify candidate tasks and their supporting signals." /> : <>
+                    <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-slate-100">Unique priority items</p><Badge tone="blue">{priorityView.uniquePriorityCount} counted once</Badge></div><p className="mt-1 text-xs leading-5 text-slate-400">Action candidates are the primary items. A deadline or urgency marker from the same recognized source message is attached as context, not counted as another alert.</p><div className="mt-3 grid grid-cols-3 gap-2">{[{ name: "High", count: priorityView.counts.High, tone: "red", icon: ArrowUpRight, note: "Review first" }, { name: "Medium", count: priorityView.counts.Medium, tone: "amber", icon: Activity, note: "Plan next" }, { name: "Low", count: priorityView.counts.Low, tone: "slate", icon: ArrowDownRight, note: "Keep in view" }].map((group) => { const Icon = group.icon; return <div key={group.name} className={cx("rounded-2xl border p-4 shadow-[0_10px_26px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5", group.tone === "red" ? "border-rose-300/20 bg-rose-400/[0.06]" : group.tone === "amber" ? "border-amber-300/20 bg-amber-300/[0.05]" : "border-slate-700/60 bg-slate-950/35")}><div className="flex items-center justify-between gap-1"><p className={cx("text-xs font-bold", group.tone === "red" ? "text-rose-200" : group.tone === "amber" ? "text-amber-200" : "text-slate-300")}>{group.name}</p><Icon size={14} aria-hidden="true" /></div><p className="mt-2 text-2xl font-extrabold tabular-nums text-white">{group.count}</p><p className="mt-1 text-[11px] text-slate-400">{group.note}</p></div>; })}</div></div>
+                    {priorityView.priorityItems.length ? <div className="space-y-4">{["High", "Medium", "Low"].map((level) => { const items = priorityView.priorityItems.filter((item) => item.urgency === level); if (!items.length) return null; return <section key={level}><div className="mb-2 flex items-center gap-2"><span className={cx("h-2 w-2 rounded-full", level === "High" ? "bg-rose-400" : level === "Medium" ? "bg-amber-300" : "bg-slate-400")} /><h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">{level} priority</h3><span className="text-xs text-slate-500">{items.length}</span></div><div className="space-y-2">{items.map((item) => <article key={item.id} className="group rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_30px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-600 hover:bg-slate-900/65 hover:shadow-[0_18px_38px_rgba(2,6,23,0.25)]"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{item.type === "task" ? "Action item" : "Standalone source signal"}</span>{item.owner && <span className="text-[11px] text-slate-400">· {item.owner}</span>}{item.classification === "self_commitment" && <Badge tone="blue">Self-commitment</Badge>}{item.classification === "unassigned_request" && <Badge tone="slate">Unassigned request</Badge>}{item.classification === "model_candidate" && <Badge tone="amber">Model suggestion · verify</Badge>}</div><p className="break-words text-xs leading-5 text-slate-200">{item.text}</p>{item.type === "task" && item.dueDate && <p className={cx("mt-1 text-xs", item.dueDateStatus === "contextual" ? "text-amber-200" : item.dueDateStatus === "explicit" ? "text-cyan-200" : "text-slate-400")}>{item.dueDateStatus === "contextual" ? `Contextual timing · verify: ${item.dueDate}` : item.dueDateStatus === "explicit" ? `Explicit deadline: ${item.dueDate}` : `Unverified due signal: ${item.dueDate}`}</p>}{item.type === "task" && item.condition && <p className={cx("mt-1 text-xs", item.conditionStatus === "reported_satisfied" ? "text-emerald-200" : item.conditionStatus === "reported_rejected" ? "text-rose-200" : item.conditionStatus === "ambiguous" ? "text-orange-200" : "text-amber-200")}>{item.conditionStatus === "reported_satisfied" ? `Condition reported satisfied: ${item.condition}` : item.conditionStatus === "reported_rejected" ? `Condition reported rejected: ${item.condition}` : item.conditionStatus === "ambiguous" ? `Condition status ambiguous: ${item.condition}` : `Condition pending verification: ${item.condition}`}</p>}{item.type === "task" && item.acknowledgedBy && <p className="mt-1 text-xs font-semibold text-emerald-300">Acknowledged by {item.acknowledgedBy}</p>}{item.type === "task" && item.linkedSignals.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-1.5"><span className="text-[11px] text-slate-500">Supporting context on this source:</span>{[...new Set(item.linkedSignals.map((signal) => signal.kind))].map((kind) => <Badge key={kind} tone="violet">{kind}</Badge>)}</div>}{item.type === "signal" && item.signals.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{[...new Set(item.signals.map((signal) => signal.kind))].map((kind) => <Badge key={kind} tone="violet">{kind}</Badge>)}</div>}<p className="mt-2 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></article>)}</div></section>; })}</div> : <EmptyState icon={Target} title="No priority items returned" description="No action candidates or standalone urgency signals were detected." />}
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/40 px-4 py-3 text-xs leading-5 text-slate-400">{priorityView.uniqueTaskCount} task candidates · {priorityView.linkedSignalCount} supporting signals attached to task messages · {priorityView.standaloneSignalCount} standalone source signal groups. Supporting signals are not added again to the priority count.</div>
+                  </>}</div>}
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU inference when available · Rules-only fallback otherwise</p></footer>
+        </main>
+      </div>
+    </div>
+  );
+}
