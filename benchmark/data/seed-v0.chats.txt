@@ -1,0 +1,208 @@
+# Seed benchmark v0 — AUTHORED, not real chats. Labels were written before looking at parser output.
+# Format:
+#   # chat: <id> | lang: english|hinglish|devanagari|mixed | date: YYYY-MM-DD   (date = first message date)
+#   Speaker: message text [ => <label> key=value ...]
+# Labels: task  = real commitment/request worth tracking
+#         vague = real but under-specified (what/who unclear): fine as a review-queue item, not required as a confirmed task
+#         (no label) = not a task
+# Keys:   owner=<Name>|none (omit = owner not scored)   due=YYYY-MM-DD (omit = not scored)   kind=explicit|implied
+
+# chat: agency-launch | lang: english | date: 2026-11-02
+Maya: Morning team, quick sync on the Diwali campaign.
+Maya: Arjun, please send the revised banner designs by Friday  => task owner=Arjun due=2026-11-06 kind=explicit
+Arjun: Sure, will do
+Maya: Priya can you share the media plan with the client today?  => task owner=Priya due=2026-11-02 kind=explicit
+Priya: on it
+Maya: client wants the final copy before the weekend  => task owner=none kind=implied
+Arjun: noted
+Maya: The client meeting is at 4 PM
+Priya: 👍
+Maya: don't forget to book the shoot studio  => task owner=none kind=implied
+Arjun: ok
+
+# chat: ops-hinglish | lang: hinglish | date: 2026-11-02
+Rahul: bhai kal tak client ko quotation bhej dena  => task due=2026-11-03 kind=explicit
+Amit: haan kar dunga
+Rahul: aur invoice bhi check kar lena urgent hai  => task kind=explicit
+Amit: ok bhai
+Rahul: payment pending hai, Sandeep ko remind kar do  => task owner=none kind=explicit
+Sandeep: 👍
+Rahul: Sunday ko office band rahega
+Rahul: invoice mat bhejna abhi
+Amit: client ka call aaya tha, bol rahe the quote theek hai
+Rahul: badhiya yaar 🔥
+
+# chat: client-logo-hinglish | lang: hinglish | date: 2026-11-02
+Neeraj: logo ka final version chahiye by Friday  => task due=2026-11-06 kind=implied
+Karan: ji sir, dekh leta hoon
+Neeraj: pricing sheet bhi bhej dijiye  => task kind=explicit
+Karan: ek ghante mein bhejta hoon
+Neeraj: board meeting Monday ko hai
+Neeraj: website kab tak live hogi?
+Karan: 15 tak ho jayegi
+Neeraj: perfect, thanks
+Neeraj: GST invoice bhi chahiye October ka  => task kind=implied
+
+# chat: self-commit-hinglish | lang: hinglish | date: 2026-11-02
+Amit: main kal subah tak design bhej dunga  => task owner=Amit due=2026-11-03 kind=explicit
+Rahul: theek hai
+Amit: aaj raat tak invoice bana dunga  => task owner=Amit due=2026-11-02 kind=explicit
+Rahul: cool
+Rahul: Sandeep ne bola wo kal ghar se kaam karega
+Amit: kal bhej dunga  => vague owner=Amit
+Rahul: kya bhej raha hai?
+Amit: arre wahi file, kal pakka
+
+# chat: devanagari-ops | lang: devanagari | date: 2026-11-02
+रोहित: अमित, कल तक कोटेशन भेज देना  => task owner=अमित due=2026-11-03 kind=explicit
+अमित: ठीक है, कर दूंगा
+रोहित: और इनवॉइस भी चेक कर लेना  => task kind=explicit
+अमित: ओके
+रोहित: मीटिंग शाम 5 बजे है
+रोहित: क्लाइंट को रिमाइंडर मत भेजना
+सुमित: मुझे शुक्रवार तक डिज़ाइन चाहिए  => task due=2026-11-06 kind=implied
+रोहित: धन्यवाद 🙏
+
+# chat: negations-reports | lang: english | date: 2026-11-02
+Dev: I sent the report yesterday
+Dev: no need to send the deck today
+Neha: we decided to go with option B
+Neha: don't send the invoice until legal approves
+Dev: The review is scheduled for 5 PM
+Neha: Can you review the contract by Wednesday?  => task owner=none due=2026-11-04 kind=explicit
+Dev: yes
+Neha: did you see the news today?
+Dev: I'll review it tonight
+Neha: great
+
+# chat: incident | lang: english | date: 2026-11-02
+Sam: prod dashboard is showing 500s
+Ria: on it
+Sam: Ria please post the likely cause by 3 PM  => task owner=Ria due=2026-11-02 kind=explicit
+Sam: We need a rollback plan before the 5 PM review  => task owner=none due=2026-11-02 kind=implied
+Ria: should I draft it?
+Sam: yes, you do it  => task owner=Ria kind=explicit
+Sam: don't restart production
+Ria: restarted staging, all good
+Sam: still waiting on the API logs from Ria  => task owner=Ria kind=implied
+
+# chat: client-ops-english | lang: english | date: 2026-11-02
+Client: Hi, we need the website live by 15th  => task due=2026-11-15 kind=implied
+Vik: Sure, we'll keep you posted
+Client: Also pls send GST invoice for October  => task kind=explicit
+Vik: Will do
+Client: payment will go out Friday
+Client: need the Q3 numbers before the review  => task kind=implied
+Vik: ok
+Client: thanks!!
+Vik: I'll send the sample photos tomorrow  => task owner=Vik due=2026-11-03 kind=explicit
+
+# chat: team-lunch-mixed | lang: mixed | date: 2026-11-02
+Pooja: guys Friday ko team lunch hai
+Pooja: Kunal, venue book kar dena please  => task owner=Kunal kind=explicit
+Kunal: ok done
+Pooja: kaun cake la raha hai?
+Meera: main le aungi  => task owner=Meera kind=implied
+Pooja: 😂😂
+Pooja: sabko 1 PM tak aana hai
+
+# chat: freelancer-feedback | lang: english | date: 2026-11-02
+Client: The header looks off on mobile  => vague
+Freelancer: Looking into it
+Client: Can you also add the testimonials section?  => task kind=explicit
+Freelancer: Sure
+Client: And I need the source files by Thursday  => task due=2026-11-05 kind=implied
+Freelancer: Will send tonight
+Client: no rush on the blog posts
+Client: Thanks, looks great now
+
+# chat: weekly-todo | lang: english | date: 2026-11-02
+Lead: Todo this week: Meera to finish the deck / Kunal to book travel  => task kind=explicit
+Meera: got it
+Lead: Also the vendor quote is still pending  => task owner=none kind=implied
+Kunal: I'll chase them
+Lead: standup is at 10 tomorrow
+Lead: Reminder: submit timesheets by Friday  => task owner=none due=2026-11-06 kind=explicit
+Meera: 👍
+
+# chat: smalltalk-friends | lang: hinglish | date: 2026-11-02
+Ravi: bhai kya haal hai
+Sid: sab badhiya, tu bata
+Ravi: match dekha kal?
+Sid: haan yaar kya match tha 🔥
+Ravi: reached home
+Sid: nice, happy birthday btw 🎂
+Ravi: thanks bhai
+Sid: lol
+
+# chat: vendor-hinglish | lang: hinglish | date: 2026-11-02
+Joshi: sir sample kal tak pahunch jayega
+Mohan: theek hai, packing slip bhi bhejna  => task owner=none kind=explicit
+Joshi: ji, bhej dunga
+Mohan: payment abhi tak nahi aaya, finance se check karo  => task owner=none kind=explicit
+Joshi: sir mera invoice number 4412 hai
+Mohan: ok
+Mohan: Friday tak delivery chahiye warna cancel kar denge  => task due=2026-11-06 kind=implied
+Joshi: pakka sir
+
+# chat: hr-english | lang: english | date: 2026-11-04
+HR: Reminder that the offer letter for Anita needs to go out tomorrow  => task owner=none due=2026-11-05 kind=implied
+Mgr: I'll review it today  => task owner=Mgr due=2026-11-04 kind=explicit
+HR: Thanks. Also can someone confirm the joining date with Anita?  => task owner=none kind=explicit
+Mgr: She said the 20th
+HR: perfect
+HR: Lunch at 1?
+Mgr: sure
+
+# chat: support-english | lang: english | date: 2026-11-04
+Agent1: Customer 8812 is asking for a refund
+Lead: Please process the refund today and update the ticket  => task owner=none due=2026-11-04 kind=explicit
+Agent1: processed
+Lead: Customer 8830 wants a callback, can someone take it?  => task owner=none kind=explicit
+Agent2: I'll call them at 3  => task owner=Agent2 due=2026-11-04 kind=explicit
+Lead: the dashboard will be down for maintenance tonight
+Agent1: ok noted
+
+# chat: devanagari-self | lang: devanagari | date: 2026-11-02
+मीना: मैं आज शाम तक रिपोर्ट भेज दूंगी  => task owner=मीना due=2026-11-02 kind=explicit
+राज: ठीक है
+मीना: कल की मीटिंग का एजेंडा किसके पास है?
+राज: मेरे पास है
+राज: कृपया टीम को याद दिला दें कि कल 10 बजे आना है  => task owner=none due=2026-11-03 kind=explicit
+मीना: जी
+
+# chat: ambiguous-owners | lang: english | date: 2026-11-02
+Boss: someone needs to call the supplier  => task owner=none kind=implied
+Ana: busy today
+Boss: Raj can you take it?  => task owner=Raj kind=explicit
+Raj: I can do it after 4
+Boss: and send me the updated budget by EOD  => task owner=none due=2026-11-02 kind=explicit
+Ana: which budget?
+Boss: the Q4 one
+
+# chat: finance-hinglish | lang: hinglish | date: 2026-11-02
+Meena: Sir salary sheet kal tak approve kar dijiye  => task due=2026-11-03 kind=explicit
+Sir: dekhta hoon
+Meena: aur vendor payments ka status bhi bata dena  => task kind=explicit
+Sir: haan
+Meena: GST return 20 tak file karna hai  => task kind=implied
+Sir: yaad dilana mujhe  => task owner=Meena kind=explicit
+Meena: ji sir
+
+# chat: design-handoff | lang: english | date: 2026-11-02
+Dee: handoff notes are in the drive
+Eli: great, I'll implement the nav tomorrow  => task owner=Eli due=2026-11-03 kind=explicit
+Dee: could you also export the icons as SVG?  => task owner=Eli kind=explicit
+Eli: yes
+Dee: I think the spacing is off on the footer  => vague
+Eli: ok will check
+Dee: no hurry
+Eli: lol sure
+
+# chat: festival-hinglish | lang: hinglish | date: 2026-11-02
+Nisha: Diwali ke liye mithai ka order de diya?
+Tara: nahi abhi nahi, aaj kar dungi  => task owner=Tara due=2026-11-02 kind=explicit
+Nisha: aur decorations Rohan laayega  => task owner=Rohan kind=implied
+Tara: perfect
+Nisha: kal subah jaldi aana please  => task due=2026-11-03 kind=explicit
+Tara: haha ok

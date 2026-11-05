@@ -53,3 +53,9 @@ export function findUniquePriorAction(actions, owner, text, record, { minimumSco
   if (matches.length > 1 && matches[0].score - matches[1].score < 0.12) return null;
   return matches[0].action;
 }
+
+/** The only earlier task owned by this speaker, or null when none or several exist. */
+export function findUniqueOwnedAction(actions, owner, record) {
+  const owned = actions.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, owner) && action.sourceSpan.startOffset < record.startOffset);
+  return owned.length === 1 ? owned[0] : null;
+}

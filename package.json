@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "bench": "node benchmark/score.mjs dev",
+    "bench:verbose": "node benchmark/score.mjs dev --verbose",
+    "bench:holdout": "node benchmark/score.mjs holdout",
+    "bench:save": "node benchmark/score.mjs --save"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.85",

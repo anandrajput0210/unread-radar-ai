@@ -1,4 +1,4 @@
-import { COMMITMENT_REGEX, NON_ACTIONABLE_TIME_REFERENCE_REGEX, TIMING_TOKEN_REGEX } from "./constants.js";
+import { COMMITMENT_REGEX, REQUEST_REGEX, NON_ACTIONABLE_TIME_REFERENCE_REGEX, TIMING_TOKEN_REGEX } from "./constants.js";
 import { resolveDeadlineDate } from "./dates.js";
 import { conversationMessageRecords, recordMeta, resolveParseOptions } from "./records.js";
 import { isNegatedAt, sourceSpan, uniqueBy, urgencyFor } from "./text.js";
@@ -30,8 +30,9 @@ export function mergeAdjacentTimingTokens(text, matches) {
 export function timingSignalIsExplicit(text, token) {
   const prefix = text.slice(Math.max(0, token.index - 72), token.index);
   return /\b(?:by|before|due(?:\s+by)?|no\s+later\s+than|deadline)\b[\s\S]{0,68}$/iu.test(prefix)
-    || /\bkal\s+tak\b/iu.test(token.text)
-    || /\baaj\b/iu.test(token.text)
+    || /\b(?:kal|parso)\s+(?:(?:subah|shaam|sham|raat|dopahar)\s+)?tak\b|तक/iu.test(token.text)
+    || /\baaj\b|^eod$|^cob$|^end\s+of\s+(?:the\s+)?day$/iu.test(token.text)
+    || (/\bfor\s+(?:next\s+)?$/iu.test(prefix) && /^['’]s\b/u.test(text.slice(token.end, token.end + 3)))
     || /\b(?:were|was)\s+supposed\s+to\b[\s\S]{0,68}$/iu.test(prefix);
 }
 
@@ -44,15 +45,15 @@ export function isMeetingTimeContext(text, token) {
 export function extractTimingSignals(text, { allowCommitmentTiming = false } = {}) {
   const value = String(text ?? "");
   const matches = mergeAdjacentTimingTokens(value, [...value.matchAll(new RegExp(TIMING_TOKEN_REGEX.source, "giu"))]);
-  const hasCommitment = allowCommitmentTiming && [...value.matchAll(new RegExp(COMMITMENT_REGEX.source, "giu"))]
-    .some((match) => !isNegatedAt(value, match.index));
+  const hasCommitment = allowCommitmentTiming && ([...value.matchAll(new RegExp(COMMITMENT_REGEX.source, "giu"))]
+    .some((match) => !isNegatedAt(value, match.index)) || REQUEST_REGEX.test(value));
 
   return uniqueBy(matches.filter((token) => {
     if (isMeetingTimeContext(value, token)) return false;
     if (timingSignalIsExplicit(value, token)) return true;
     // A relative day-part directly attached to a first-person action is an
     // explicit execution time, unlike a standalone meeting/update clock.
-    return hasCommitment && /\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:morning|afternoon|evening|noon|midnight)\b/i.test(token.text);
+    return hasCommitment && /^(?:today|tomorrow|tonight)(?:\s+(?:morning|afternoon|evening|noon|midnight))?$|\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:morning|afternoon|evening|noon|midnight)\b/i.test(token.text);
   }).map((token) => token.text.replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2}(?::\d{2})?\s?(?:am|pm))\b/iu, "$1, $2")), (value) => value.toLocaleLowerCase());
 }
 

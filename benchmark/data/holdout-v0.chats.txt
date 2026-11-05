@@ -1,0 +1,93 @@
+# Holdout v0 — AUTHORED AFTER the review-queue extractor was frozen. Run once; do not tune on it.
+# Same format as seed-v0.chats.txt.
+
+# chat: ho-agency-brief | lang: english | date: 2026-11-03
+Isha: Hey all, kicking off the Q1 brand refresh
+Isha: Could you please arrange a call with the printer? Need quotes before Thursday  => task owner=none due=2026-11-05 kind=explicit
+Tom: sure, I'll get it done
+Isha: Tom, loop in Priya on the packaging brief  => task owner=Tom kind=explicit
+Tom: will take care
+Isha: I'd appreciate it if someone could proofread the deck tonight  => task owner=none due=2026-11-03 kind=implied
+Priya: I'll handle that
+Isha: you must try the filter coffee at the new place lol
+Tom: can you believe the prices though
+Isha: will you come to the party tomorrow?
+Tom: I'll be a bit late
+
+# chat: ho-sales-follow | lang: english | date: 2026-11-03
+Rep: Spoke to Dhruv's team, they liked the demo
+Mgr: nice. Send them the revised pricing and get back to me once they reply  => task owner=none kind=explicit
+Rep: ok
+Mgr: Also kindly revert to the Pune lead before EOD  => task owner=none due=2026-11-03 kind=explicit
+Rep: sure
+Mgr: the contract is still with legal  => task owner=none kind=implied
+Rep: should I ping them?
+Mgr: yes please ping legal and let me know  => task owner=none kind=explicit
+Rep: I need to sleep, long day
+Mgr: haha go home
+
+# chat: ho-hinglish-shop | lang: hinglish | date: 2026-11-03
+Owner: bhai ek kaam kar, supplier ko call maar de  => task owner=none kind=explicit
+Staff: ji bhaiya
+Owner: kal tak maal mil jana chahiye warna problem hai  => task due=2026-11-04 kind=implied
+Staff: haan bol dunga
+Owner: aur mujhe bill ki copy bhej do na  => task owner=none kind=explicit
+Staff: bhej raha hoon
+Owner: kal 11 baje tak shop ready rakhna  => task due=2026-11-04 kind=explicit
+Staff: pakka
+Owner: aaj ka collection kitna hua?
+Staff: 12 hazar
+Owner: badhiya, bill pay kar diya maine
+
+# chat: ho-hinglish-team | lang: hinglish | date: 2026-11-03
+Zoya: guys deadline Friday hai, jaldi karo yaar  => task owner=none due=2026-11-06 kind=implied
+Aman: main dekh lunga slides
+Zoya: Aman tum slides dekh lena aur Kiran ko bhi bol dena  => task owner=Aman kind=explicit
+Kiran: mujhe nahi pata kya karna hai
+Zoya: wo doc mein likha hai
+Kiran: ohh theek hai, kal tak kar dungi  => task owner=Kiran due=2026-11-04 kind=explicit
+Aman: Zoya kya tum aaj aa rahi ho?
+Zoya: haan lunch pe aungi
+Aman: cool
+
+# chat: ho-devanagari-office | lang: devanagari | date: 2026-11-03
+सीमा: कृपया आज ही फ़ाइल भेजें  => task owner=none due=2026-11-03 kind=explicit
+राहुल: जी, भेज रहा हूँ
+सीमा: मुझे रिपोर्ट कल तक चाहिए  => task due=2026-11-04 kind=implied
+राहुल: मैं देख लूंगा  => task owner=राहुल kind=explicit
+सीमा: आप सब मीटिंग में आ जाइए
+सीमा: चाय पीने चलें?
+राहुल: चलो
+
+# chat: ho-support-queue | lang: english | date: 2026-11-03
+Ana: Ticket 9921 is escalated, customer is angry
+Lee: I'm on it, will update the ticket by 6 PM  => task owner=Lee due=2026-11-03 kind=explicit
+Ana: thanks. Can someone also check the billing logs?  => task owner=none kind=explicit
+Raj: I can check them after lunch  => task owner=Raj kind=explicit
+Ana: the outage report needs to be shared with the client by Friday  => task owner=none due=2026-11-06 kind=implied
+Lee: noted
+Ana: Pizza is here
+Lee: be right there
+
+# chat: ho-freelance-hinglish | lang: mixed | date: 2026-11-03
+Client: hi, mockups achhe lage. revisions Thursday tak bhej dena please  => task due=2026-11-05 kind=explicit
+Dev: sure, sending
+Client: and we should add a pricing page?  => vague
+Dev: ok will check
+Client: invoice share karo jab ho jaye  => task owner=none kind=explicit
+Dev: kal bhej dunga invoice  => none
+Client: great
+Client: weekend plan kya hai?
+Dev: sleeping lol
+
+# chat: ho-ops-english | lang: english | date: 2026-11-03
+Ops: Reminder: vendor audit is on the 12th
+Fin: ok
+Ops: Fin to send the Q3 reconciliation before the audit  => task owner=Fin kind=explicit
+Fin: that's the plan
+Ops: we need to settle the invoices from last month  => task owner=none kind=implied
+Fin: they're pending approval
+Ops: who approves?
+Fin: Meera does, I'll nudge her  => task owner=Fin kind=explicit
+Ops: perfect. we decided to move audit prep to Monday
+Fin: 👍

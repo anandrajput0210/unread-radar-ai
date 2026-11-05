@@ -1,0 +1,35 @@
+@chat id=hi-explicit split=dev cats=hinglish,explicit start=02/11/2026
+18:00 Rahul: Amit bhai, kal tak client ko quotation bhej dena. => t1 owner=Amit due=2026-11-03
+18:02 Amit: haan bhai, kar dunga => t1
+18:05 Rahul: aur invoice bhi check kar lena, urgent hai => t2 owner=- due=-
+18:06 Amit: ok bhai
+18:10 Rahul: Sandeep ko remind kar do payment ke liye => t3 owner=- due=-
+18:12 Rahul: kal office band rahega
+
+@chat id=hi-implied split=dev cats=hinglish,implied start=03/11/2026
+12:00 Neha: logo ka final version chahiye by Friday => t1 owner=- due=2026-11-06
+12:03 Rohit: ho jayega, Thursday tak bhej dunga => t1 owner=Rohit due=2026-11-05
+12:10 Neha: aur pricing sheet bhi bhej do pls => t2 owner=- due=-
+12:11 Rohit: ok
+12:30 Neha: invoice ka payment pending hai, please check karke batao => t3 owner=- due=-
+
+@chat id=hi-negation-reports split=dev cats=hinglish,negation,false-positive start=04/11/2026
+09:00 Rahul: invoice mat bhejna abhi, client ne hold pe rakha hai
+09:02 Amit: theek hai
+09:10 Rahul: Banner ka kaam ab Rohan karega => t1 owner=Rohan due=-
+09:15 Amit: quotation bhej diya kal hi
+09:20 Rahul: great 👍
+09:30 Rahul: meeting 5 baje hai
+09:31 Amit: kal tak sab ho jayega haha just joking 😂
+
+@chat id=hi-longform split=dev cats=hinglish,ambiguous-owner start=04/11/2026
+13:00 Rahul: dekh bhai, client ka call aaya tha, unko revised quote chahiye aur delivery timeline bhi, Amit tum dono dekh lo please, kal subah tak bhej dena => t1 owner=Amit due=2026-11-05
+13:05 Amit: ok bhai
+13:10 Rahul: aur haan, Sunday ko team lunch hai
+
+@chat id=hi-devanagari split=dev cats=devanagari,hinglish,explicit start=03/11/2026
+15:00 राहुल: अमित, कल तक कोटेशन भेज देना। => t1 owner=अमित due=2026-11-04
+15:02 अमित: ठीक है, कर दूंगा। => t1
+15:05 राहुल: और इनवॉइस भी चेक कर लेना। => t2 owner=- due=-
+15:06 अमित: ठीक है
+15:30 राहुल: मीटिंग शाम 5 बजे है।

@@ -1,0 +1,15 @@
+# Milestone D · DEV · Deadlines
+@chat id=d-dl-friday split=dev cats=deadlines,english start=02/11/2026
+09:00 Tom: Please send the draft by Friday. => t1 owner=- due=2026-11-06
+
+@chat id=d-dl-next-monday split=dev cats=deadlines,english start=02/11/2026
+09:00 Tom: Please finish the audit by next Monday. => t1 owner=- due=2026-11-09
+
+@chat id=d-dl-eod split=dev cats=deadlines,english start=02/11/2026
+09:00 Tom: Mike, update the tracker by EOD. => t1 owner=Mike due=2026-11-02
+
+@chat id=d-dl-vague split=dev cats=deadlines,ambiguity,english start=02/11/2026
+09:00 Tom: Please send the draft sometime next week. => t1 owner=- due=-
+
+@chat id=d-dl-tomorrow-morning split=dev cats=deadlines,english start=02/11/2026
+09:00 Tom: Please share the slides tomorrow morning. => t1 owner=- due=2026-11-03

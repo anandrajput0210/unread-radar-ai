@@ -112,7 +112,7 @@ test("rules-only analysis resolves demo owners and links an acknowledgement to t
   assert.equal(hotelTask.acknowledgementEvidence.quote, "[14:15, 12/10/2024] Mike Ross: I'm on it.");
   assert.equal(featureRequest.owner, null);
   assert.equal(featureRequest.classification, "unassigned_request");
-  assert.equal(result.actions.length, 3);
+  assert.equal(result.actions.length, 4);
 });
 
 

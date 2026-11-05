@@ -1,5 +1,5 @@
 import { extractSelfCommitment } from "./candidates.js";
-import { DEADLINE_WORDS, DELAY_CUE, PRONOUN_OBJECTS, RESERVED_SPEAKERS, escapeRegex } from "./constants.js";
+import { DEADLINE_WORDS, DELAY_CUE, TASK_VERB_SOURCE, PRONOUN_OBJECTS, RESERVED_SPEAKERS, escapeRegex } from "./constants.js";
 import { resolveDeadlineDate } from "./dates.js";
 import { addSupportingDetail, matchesAcknowledgement, ownerMatchesSpeaker, relationScore, relationTokens } from "./matching.js";
 import { recordMeta } from "./records.js";
@@ -11,7 +11,8 @@ export function lifecycleEventType(body) {
 
   if (/\b(?:reassign(?:ed|ment)?|transfer(?:red)?|hand(?:ing)?\s+over|take\s+over|taking\s+over|instead\s+of)\b/iu.test(value)
     || /\b(?:will|can|is\s+now\s+going\s+to)\s+(?:handle|own)\b/iu.test(value)) return "reassigned";
-  if (/\b(?:cancel(?:led|ed)?|scrap(?:ped)?|drop\s+this|no\s+longer\s+needed|not\s+needed\s+anymore|cancel\s+kar\s+do|mat\s+(?:bhejo|karo))\b/iu.test(value)) return "cancelled";
+  if (/\b(?:cancel(?:led|ed)?|scrap(?:ped)?|drop\s+this|no\s+longer\s+needed|not\s+needed\s+anymore|cancel\s+kar\s+do|mat\s+(?:bhejo|karo)|scratch\s+that|ignore\s+that|never\s*mind\s+(?:that|it)|forget\s+(?:that|it))\b/iu.test(value)
+    || /\b(?:we(?:'re|\s+are)?|i(?:'m|\s+am)?)\s+not\s+(?:doing|booking|sending|needing|going\s+to)\b[^.!?]*\banymore\b|\bno\s+need\s+(?:for|to)\b[^.!?]*\banymore\b|\bdon['’]t\s+need\b[^.!?]*\banymore\b/iu.test(value)) return "cancelled";
   if (/\b(?:hold\s+(?:pe|par|on)|on\s+hold|put\s+(?:this\s+)?on\s+hold|paused?|rok\s+(?:do|dena|ke\s+rakho)|abhi\s+mat\s+(?:karo|bhejo|bhejna))\b/iu.test(value)) return "blocked";
   if (/\b(?:approval\s+(?:de\s+diya|mil\s+gaya|mil\s+gayi|aa\s+gaya)|approved\s+by\s+(?:the\s+)?client|off\s+hold|resume|unblock(?:ed)?|ab\s+kar\s+sakte\s+ho)\b/iu.test(value)) return "unblocked";
   if (/\bab\s+@?[\p{L}][\p{L}\p{M}'’.-]*\s+(?:karega|karegi|karenge|sambhalega|sambhalegi|dekhega|dekhegi)\b/iu.test(value)) return "reassigned";
@@ -21,7 +22,7 @@ export function lifecycleEventType(body) {
     || /\b(?:i|we)\s+(?:have\s+)?(?:sent|shared|submitted|uploaded|fixed|resolved|booked|delivered|completed|finished|approved)\b/iu.test(value)
     || /\b[\p{L}\p{N}][\p{L}\p{N}'’_-]{1,}\s+(?:sent|shared|submitted|uploaded|fixed|resolved|booked|delivered|completed|finished|approved)\b/iu.test(value)
     || /\b(?:ho\s+gaya|bhej\s+diya|send\s+kar\s+diya|share\s+kar\s+diya|submit\s+kar\s+diya|complete\s+kar\s+diya|kar\s+diya)\b/iu.test(value)) return "completed";
-  if (/\b(?:delay(?:ed)?|postpon(?:e|ed)|pushing\s+(?:it\s+)?to|moving\s+(?:it\s+)?to|running\s+late|not\s+ready|can't\s+make\s+it|cannot\s+make\s+it|kal\s+tak\s+possible\s+nahi)\b/iu.test(value)) return "delayed";
+  if (/\b(?:delay(?:ed)?|postpon(?:e|ed)|pushing\s+(?:it\s+)?to|moving\s+(?:it\s+)?to|running\s+late|need\s+until|need\s+more\s+time|not\s+ready|can't\s+make\s+it|cannot\s+make\s+it|kal\s+tak\s+possible\s+nahi)\b/iu.test(value)) return "delayed";
   if (/\b(?:working\s+on|started\s+(?:working\s+on|it)|in\s+progress|currently\s+handling|taking\s+care\s+of|looking\s+into|kaam\s+kar\s+raha|kaam\s+chal\s+raha)\b/iu.test(value)) return "in-progress";
   return null;
 }
@@ -32,13 +33,15 @@ export function extractReassignmentOwner(body) {
     /\b(?:reassign(?:ed|ing)?|transfer(?:red|ring)?|assign(?:ed|ing)?)\b[\s\S]{0,64}?\bto\s+(@?[\p{L}][\p{L}\p{M}'’.-]*(?:\s+[\p{L}][\p{L}\p{M}'’.-]*)?)/iu,
     /\b(@?[\p{L}][\p{L}\p{M}'’.-]*(?:\s+[\p{L}][\p{L}\p{M}'’.-]*)?)\s+(?:will|can|is\s+now\s+going\s+to)\s+(?:take\s+over|handle|own)\b/iu,
     /\b(@?[\p{L}][\p{L}\p{M}'’.-]*(?:\s+[\p{L}][\p{L}\p{M}'’.-]*)?)\s*,?\s+(?:please\s+)?take\s+over\b/iu,
+    /\b(?:actually,?\s+|now\s+)?(@?[\p{L}][\p{L}\p{M}'’.-]*)\s+(?:will|should|can)\s+[^.!?]*?\binstead\b/iu,
     /\bab\s+(@?[\p{L}][\p{L}\p{M}'’.-]*)\s+(?:karega|karegi|karenge|sambhalega|sambhalegi|dekhega|dekhegi)\b/iu,
   ];
   for (const pattern of patterns) {
     const match = value.match(pattern);
     if (match?.[1]) {
       const owner = match[1].trim().replace(/[.,;:]+$/u, "");
-      if (!RESERVED_SPEAKERS.has(owner.toLocaleLowerCase())) return owner;
+      // "I can own it" / "we will handle" name a pronoun, not a person to reassign to.
+      if (!RESERVED_SPEAKERS.has(owner.toLocaleLowerCase()) && !/^(?:i|me|we|us|you|he|she|they|it|who|someone|somebody|anyone)$/iu.test(owner)) return owner;
     }
   }
   return null;
@@ -46,7 +49,7 @@ export function extractReassignmentOwner(body) {
 
 export function extractLifecycleDuePhrase(body) {
   const value = String(body ?? "");
-  const explicit = value.match(/\b(?:until|till|by|before|move(?:d)?\s+to|shift(?:ed)?\s+to|push(?:ed)?\s+to)\s+((?:day\s+after\s+tomorrow|tomorrow|today|kal\s+tak|aaj|next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(?:\s*,?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm))?)\b/iu);
+  const explicit = value.match(/\b(?:until|till|by|before|on|move(?:d)?\s+to|shift(?:ed)?\s+to|push(?:ed)?\s+to)\s+((?:day\s+after\s+tomorrow|tomorrow|today|kal\s+tak|aaj|next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(?:\s*,?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm))?)\b/iu);
   if (explicit?.[1]?.trim()) return explicit[1].trim();
   const relative = value.match(/\b(day\s+after\s+tomorrow|tomorrow|kal\s+tak|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/iu);
   return relative?.[1] || null;
@@ -144,7 +147,9 @@ export function applyTaskLifecycle(actions, records, options = {}) {
     // only when the speaker owns exactly one open task whose verb matches;
     // otherwise leave everything as-is rather than guess.
     if (speaker && DELAY_CUE.test(body)) {
-      const commitment = extractSelfCommitment(body, speaker);
+      // "Running late, will send it on Thursday" has no "I", but is still the speaker's own commitment.
+      const bareWill = body.match(new RegExp(String.raw`\bwill\s+((?:${TASK_VERB_SOURCE})\b[^.!?]*)`, "iu"));
+      const commitment = extractSelfCommitment(body, speaker) || (bareWill ? { owner: speaker, text: bareWill[1].trim() } : null);
       // The extractor may or may not have emitted a separate task for this
       // message (it often folds it into the original), so the merge works from
       // the message itself and treats the orphan as optional cleanup.

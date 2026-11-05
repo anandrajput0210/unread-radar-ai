@@ -1,0 +1,40 @@
+# Former holdout. Its per-case misses were inspected during Milestone C, so it is now a DEV set.
+# 05/11/2026 is a Thursday.
+
+@chat id=ho-en-client split=dev cats=english,implied start=05/11/2026
+10:00 Client: Could you send over the updated proposal by Monday? => t1 owner=- due=2026-11-09
+10:05 Vikram: Yes, I'll have it with you on Monday morning. => t1 owner=Vikram due=2026-11-09
+10:06 Client: Also, the logo files you sent are corrupted. => t2 owner=- due=-
+10:08 Vikram: Sorry about that, resending now. => t2 owner=Vikram
+10:15 Client: Thanks!
+
+@chat id=ho-hi-relay split=dev cats=hinglish,explicit start=05/11/2026
+11:00 Sunita: kal subah tak report mail kar dena => t1 owner=- due=2026-11-06
+11:02 Karan: theek hai ma'am, kar dunga => t1 owner=Karan
+11:10 Sunita: aur Pooja ko bol dena ki sample le aaye => t2 owner=Pooja due=-
+11:12 Karan: ji
+11:20 Sunita: kal meeting nahi hai
+
+@chat id=ho-en-negation split=dev cats=english,negation,false-positive start=05/11/2026
+17:00 Lead: Do not deploy to production today.
+17:02 Dev: Understood. Waiting for QA sign-off first.
+17:10 Lead: Once QA signs off, deploy it. Nobody should touch the config until then. => t1 owner=- due=-
+17:30 QA: Signed off.
+17:31 Dev: Deploying now. => t1 owner=Dev
+
+@chat id=ho-hi-chatter split=dev cats=hinglish,false-positive start=05/11/2026
+21:00 Rohan: bhai kal ka match dekha?
+21:01 Vijay: haan yaar mast tha 😂
+21:02 Rohan: next time chalte hain saath mein
+21:10 Vijay: meri report kal bhej di thi
+21:11 Rohan: achha
+
+@chat id=ho-en-multi split=dev cats=english,explicit,ambiguous-owner start=05/11/2026
+09:00 Boss: Priya, please book the flight; Rahul, update the itinerary by tomorrow; and someone call the hotel. => t1 owner=Priya due=-; t2 owner=Rahul due=2026-11-06; t3 owner=- due=-
+
+@chat id=ho-en-delay split=dev cats=english,lifecycle start=02/11/2026
+10:00 Meena: Zoya, share the audit report by Friday. => t1 owner=Zoya due=2026-11-06
+10:05 Zoya: Will do. => t1
+--- +2d
+09:00 Zoya: Delayed, need one more day. Will send on Monday. => t1 owner=Zoya due=2026-11-09
+09:05 Meena: Okay.

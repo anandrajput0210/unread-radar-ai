@@ -153,7 +153,7 @@ test("resolves named addressees, deadlines, and acknowledgements in the six-mess
   ].join("\n");
 
   const result = analyzeConversations(input);
-  assert.equal(result.actions.length, 3);
+  assert.equal(result.actions.length, 4);
 
   const featureRequest = result.actions.find((item) => /latest feature requests/i.test(item.text));
   assert.ok(featureRequest);

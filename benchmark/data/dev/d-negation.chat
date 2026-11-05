@@ -1,0 +1,16 @@
+# Milestone D · DEV · Negation
+@chat id=d-ne-dont-send split=dev cats=negation,english,false-positive start=02/11/2026
+10:00 Chris: Don't send the report yet.
+
+@chat id=d-ne-no-need split=dev cats=negation,english,false-positive start=02/11/2026
+10:00 Chris: No need to update the spreadsheet, I've already done it.
+
+@chat id=d-ne-then-request split=dev cats=negation,english start=02/11/2026
+10:00 Chris: Hold off on the invoice. Please send the quote instead. => t1 owner=- due=-
+
+@chat id=d-ne-cant split=dev cats=negation,english,false-positive start=02/11/2026
+10:00 Lena: I won't be able to send the file today.
+10:01 Chris: no problem
+
+@chat id=d-ne-hinglish split=dev cats=negation,hinglish,false-positive start=02/11/2026
+10:00 Chris: report mat bhejna, nahi chahiye ab

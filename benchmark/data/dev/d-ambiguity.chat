@@ -1,0 +1,12 @@
+# Milestone D · DEV · Ambiguity
+@chat id=d-am-two-owners split=dev cats=ambiguity,english start=02/11/2026
+10:00 Neil: Ana and Bo, please prepare the demo. => t1 owner=Ana and Bo due=-
+
+@chat id=d-am-two-tasks split=dev cats=ambiguity,english start=02/11/2026
+10:00 Neil: Please send the invoice and update the tracker by Friday. => t1 owner=- due=2026-11-06; t2 owner=- due=2026-11-06
+
+@chat id=d-am-pronoun split=dev cats=ambiguity,english start=02/11/2026
+10:00 Neil: Can you send it to them today? => t1 owner=- due=2026-11-02 level=possible
+
+@chat id=d-am-offer split=dev cats=ambiguity,english,false-positive start=02/11/2026
+10:00 Neil: I can help with the slides if needed.

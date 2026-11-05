@@ -33,3 +33,8 @@ The application intentionally treats exact source-reference validity separately 
 The cross-conversation integration tests also pass the three fixture chats through the local rules-only engine and validate each primary task quotation, acknowledgement quotation, and attached supporting-context quotation against the corresponding source snapshot. This checks that the displayed references point to exact source spans. It still does not prove that the linked task interpretation is semantically right.
 
 A separate injected-model test verifies a safety rule: if a model proposes a task from a unique exact quotation but also proposes an owner and calendar date that are not grounded in the quoted source, the application discards those unsupported owner/date claims and presents the suggestion as low-priority and unverified.
+
+## Milestone D
+See `benchmark/README.md`. Dev now has 40+ chats and a fresh sealed holdout (24 chats, incl. no-task cases) covering English,
+Hinglish, Devanagari, collective, negation, deadlines, lifecycle and ambiguity. Collective
+statements live in `src/lib/extraction/collective.js`.

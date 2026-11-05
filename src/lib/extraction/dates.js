@@ -71,7 +71,7 @@ export function weekdayIndex(dateText) {
 }
 
 export function resolveDeadlineDate(duePhrase, messageDate = null, { timeZone, dateOrder = "dmy", requireMessageDate = false } = {}) {
-  const phrase = String(duePhrase ?? "").trim().toLocaleLowerCase();
+  const phrase = normalizeDevanagariDay(String(duePhrase ?? "").trim().toLocaleLowerCase());
   if (!phrase) return null;
   let baseDate = messageDate;
   if (baseDate && /^\d{4}-\d{2}-\d{2}$/u.test(baseDate) === false) baseDate = parseCalendarDate(baseDate);
@@ -89,7 +89,9 @@ export function resolveDeadlineDate(duePhrase, messageDate = null, { timeZone, d
     baseDate = `${values.year}-${values.month}-${values.day}`;
   }
 
-  if (/\b(?:kal\s+tak|tomorrow|day\s+after\s+tomorrow)\b/u.test(phrase)) return addCalendarDays(baseDate, /day\s+after\s+tomorrow/u.test(phrase) ? 2 : 1);
+  if (/\bday\s+after\s+tomorrow\b|\bparso\s+tak\b|परसों\s+तक/u.test(phrase)) return addCalendarDays(baseDate, 2);
+  if (/\b(?:kal\s+(?:(?:subah|shaam|sham|raat|dopahar)\s+)?tak|tomorrow)\b|कल\s+तक/u.test(phrase)) return addCalendarDays(baseDate, 1);
+  if (/\b(?:eod|end\s+of\s+(?:the\s+)?day|cob)\b|आज/u.test(phrase)) return baseDate;
   if (/\b(?:yesterday)\b/u.test(phrase)) return addCalendarDays(baseDate, -1);
   if (/\b(?:aaj|today|tonight)\b/u.test(phrase)) return baseDate;
 
@@ -102,10 +104,30 @@ export function resolveDeadlineDate(duePhrase, messageDate = null, { timeZone, d
     const target = weekdayNames.indexOf(weekdayMatch[2]);
     const current = weekdayIndex(baseDate);
     let offset = (target - current + 7) % 7;
-    if (weekdayMatch[1] || offset === 0 && /\bnext\b/u.test(phrase)) offset = offset === 0 ? 7 : offset + (7 - offset % 7);
+    if (weekdayMatch[1]) {
+      // "next <weekday>": the first such day strictly after today, pushed into the
+      // following Monday-Sunday week when it would still fall in the current one.
+      if (offset === 0) offset = 7;
+      const daysSinceMonday = (current + 6) % 7;
+      if (daysSinceMonday + offset < 7) offset += 7;
+    }
     return addCalendarDays(baseDate, offset);
   }
   // Bare "kal" and "parso" are deliberately unresolved: in Hindi they can
   // refer to either a past or future day without surrounding context.
   return null;
+}
+
+const DEVANAGARI_DAYS = [
+  ["सोमवार", "monday"], ["मंगलवार", "tuesday"], ["बुधवार", "wednesday"], ["गुरुवार", "thursday"],
+  ["शुक्रवार", "friday"], ["शनिवार", "saturday"], ["रविवार", "sunday"],
+];
+// "शुक्रवार तक" -> "friday", "आज शाम तक" -> "today", "कल तक" -> "tomorrow", "परसों तक" -> "day after tomorrow"
+function normalizeDevanagariDay(phrase) {
+  if (!/[\u0900-\u097F]/u.test(phrase)) return phrase;
+  for (const [hi, en] of DEVANAGARI_DAYS) if (phrase.includes(hi)) return en;
+  if (phrase.includes("परसों")) return "day after tomorrow";
+  if (/कल/u.test(phrase)) return "tomorrow";
+  if (/आज/u.test(phrase)) return "today";
+  return phrase;
 }

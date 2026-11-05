@@ -1,0 +1,494 @@
+{
+  "strict": {
+    "overall": {
+      "goldTasks": 13,
+      "found": 13,
+      "missed": 0,
+      "falsePositives": 0,
+      "duplicates": 1,
+      "duplicateRate": 7.1,
+      "lifecycleAccuracy": 40,
+      "lifecycleChecked": 5,
+      "evidenceValidity": 100,
+      "evidenceChecked": 18,
+      "precision": 100,
+      "recall": 100,
+      "ownerAccuracy": 100,
+      "ownerFalseAssignments": 0,
+      "deadlineAccuracy": 66.7,
+      "spuriousDeadlines": 1,
+      "possibleTier": {
+        "truePositives": 0,
+        "falsePositives": 0
+      }
+    },
+    "categories": {
+      "english": {
+        "goldTasks": 11,
+        "found": 11,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 1,
+        "duplicateRate": 8.3,
+        "lifecycleAccuracy": 40,
+        "lifecycleChecked": 5,
+        "evidenceValidity": 100,
+        "evidenceChecked": 16,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 57.1,
+        "spuriousDeadlines": 1,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "explicit": {
+        "goldTasks": 4,
+        "found": 4,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": 100,
+        "lifecycleChecked": 1,
+        "evidenceValidity": 100,
+        "evidenceChecked": 6,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 1,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "false-positive": {
+        "goldTasks": 0,
+        "found": 0,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": null,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": null,
+        "evidenceChecked": 0,
+        "precision": null,
+        "recall": null,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hinglish": {
+        "goldTasks": 1,
+        "found": 1,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 1,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "negation": {
+        "goldTasks": 0,
+        "found": 0,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": null,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": null,
+        "evidenceChecked": 0,
+        "precision": null,
+        "recall": null,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hindi": {
+        "goldTasks": 1,
+        "found": 1,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 1,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "collective": {
+        "goldTasks": 2,
+        "found": 2,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 2,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "deadlines": {
+        "goldTasks": 5,
+        "found": 5,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 5,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "ambiguity": {
+        "goldTasks": 2,
+        "found": 2,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 1,
+        "duplicateRate": 33.3,
+        "lifecycleAccuracy": 0,
+        "lifecycleChecked": 1,
+        "evidenceValidity": 100,
+        "evidenceChecked": 3,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "lifecycle": {
+        "goldTasks": 3,
+        "found": 3,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": 33.3,
+        "lifecycleChecked": 3,
+        "evidenceValidity": 100,
+        "evidenceChecked": 5,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      }
+    }
+  },
+  "lenient": {
+    "overall": {
+      "goldTasks": 15,
+      "found": 14,
+      "missed": 1,
+      "falsePositives": 0,
+      "duplicates": 2,
+      "duplicateRate": 12.5,
+      "lifecycleAccuracy": 40,
+      "lifecycleChecked": 5,
+      "evidenceValidity": 100,
+      "evidenceChecked": 21,
+      "precision": 100,
+      "recall": 93.3,
+      "ownerAccuracy": 100,
+      "ownerFalseAssignments": 0,
+      "deadlineAccuracy": 66.7,
+      "spuriousDeadlines": 1,
+      "possibleTier": {
+        "truePositives": 1,
+        "falsePositives": 0
+      }
+    },
+    "categories": {
+      "english": {
+        "goldTasks": 13,
+        "found": 12,
+        "missed": 1,
+        "falsePositives": 0,
+        "duplicates": 2,
+        "duplicateRate": 14.3,
+        "lifecycleAccuracy": 40,
+        "lifecycleChecked": 5,
+        "evidenceValidity": 100,
+        "evidenceChecked": 19,
+        "precision": 100,
+        "recall": 92.3,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 57.1,
+        "spuriousDeadlines": 1,
+        "possibleTier": {
+          "truePositives": 1,
+          "falsePositives": 0
+        }
+      },
+      "explicit": {
+        "goldTasks": 4,
+        "found": 4,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": 100,
+        "lifecycleChecked": 1,
+        "evidenceValidity": 100,
+        "evidenceChecked": 6,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 1,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "false-positive": {
+        "goldTasks": 0,
+        "found": 0,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": null,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 1,
+        "precision": null,
+        "recall": null,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hinglish": {
+        "goldTasks": 1,
+        "found": 1,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 1,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "negation": {
+        "goldTasks": 0,
+        "found": 0,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": null,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": null,
+        "evidenceChecked": 0,
+        "precision": null,
+        "recall": null,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hindi": {
+        "goldTasks": 1,
+        "found": 1,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 1,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "collective": {
+        "goldTasks": 3,
+        "found": 3,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 4,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 1,
+          "falsePositives": 0
+        }
+      },
+      "deadlines": {
+        "goldTasks": 5,
+        "found": 5,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "duplicateRate": 0,
+        "lifecycleAccuracy": null,
+        "lifecycleChecked": 0,
+        "evidenceValidity": 100,
+        "evidenceChecked": 5,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "ambiguity": {
+        "goldTasks": 3,
+        "found": 2,
+        "missed": 1,
+        "falsePositives": 0,
+        "duplicates": 1,
+        "duplicateRate": 33.3,
+        "lifecycleAccuracy": 0,
+        "lifecycleChecked": 1,
+        "evidenceValidity": 100,
+        "evidenceChecked": 3,
+        "precision": 100,
+        "recall": 66.7,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "lifecycle": {
+        "goldTasks": 3,
+        "found": 3,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 1,
+        "duplicateRate": 25,
+        "lifecycleAccuracy": 33.3,
+        "lifecycleChecked": 3,
+        "evidenceValidity": 100,
+        "evidenceChecked": 6,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      }
+    }
+  }
+}
