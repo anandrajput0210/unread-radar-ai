@@ -1,4 +1,5 @@
-import { ACTION_LABEL_REGEX, COMMITMENT_REGEX, HANDLE_SOURCE, IMPERATIVE_REGEX, MODAL_DIRECTIVE_REGEX, NON_NAME_WORDS, PERSON_NAME_SOURCE, RELAY_ACTION_HINT, REQUEST_REGEX, RESERVED_SPEAKERS, TASK_VERB_SOURCE } from "./constants.js";
+import { ACTION_LABEL_REGEX, COMMITMENT_REGEX, HANDLE_SOURCE, IMPERATIVE_REGEX, MODAL_DIRECTIVE_REGEX, NON_NAME_WORDS, PERSON_NAME_SOURCE, RELAY_ACTION_HINT, REQUEST_REGEX, REQUEST_VERB_SOURCE, RESERVED_SPEAKERS, TASK_VERB_SOURCE } from "./constants.js";
+import { devanagariAddressee, hasHindiAction, hasHindiNegation, isBareCommitment, isJoking, matchHindiCommitment } from "./hindi.js";
 import { hasUnnegatedPattern, isNegatedAt } from "./text.js";
 
 export function trimActionPhrase(body, startIndex) {
@@ -13,7 +14,7 @@ export function trimActionPhrase(body, startIndex) {
 export function directAddressActions(body) {
   const actions = [];
   const regex = new RegExp(
-    String.raw`(?:^|[.!?]\s+|,\s*)(${PERSON_NAME_SOURCE})\s*,\s*(?:(?:please\s+(?:also\s+)?)|(?:(?:can|could|would|will)\s+you\s+))?(${TASK_VERB_SOURCE})\b`,
+    String.raw`(?:^|[.!?]\s+|,\s*)(${PERSON_NAME_SOURCE})\s*,\s*(?:(?:please\s+(?:also\s+)?)|(?:(?:can|could|would|will)\s+you\s+))?(${REQUEST_VERB_SOURCE})\b`,
     "giu",
   );
   let match;
@@ -41,7 +42,9 @@ export function extractBulletAssignments(body) {
     if (!match) continue;
     const owner = match[1].trim();
     const actionText = `${match[2]}${match[3] || ""}`.trim().replace(/[.!?]+$/u, "");
-    if (actionText && !RESERVED_SPEAKERS.has(owner.toLocaleLowerCase())) {
+    // "We need to finalize..." / "If we need to..." read as "Name to verb" but name no person.
+    const notAName = /^(?:we|if|do|does|did|they|you|i|it|who|what|then|and|so|also|when|how|why|should|would|could|might|may|can|will)\b|\b(?:need|needs|needed|have|has|had|want|wants|got|going)$/iu.test(owner);
+    if (actionText && !notAName && !RESERVED_SPEAKERS.has(owner.toLocaleLowerCase())) {
       candidates.push({ text: actionText, owner, classification: "assigned_task" });
     }
   }
@@ -50,8 +53,8 @@ export function extractBulletAssignments(body) {
 
 export function extractHinglishAction(body) {
   const value = String(body ?? "").trim();
-  const pattern = /\b(?:bhej\s+dena|bhej\s+do|bhejna|send\s+kar\s+(?:dena|do|na)|share\s+kar\s+(?:dena|do|na)|remind\s+kar\s+(?:dena|do|na)|update\s+kar\s+(?:dena|do|na)|check\s+kar\s+(?:lena|lo)|finish\s+karna|complete\s+karna|submit\s+karna|book\s+kar\s+(?:lena|lo)|forward\s+kar\s+(?:dena|do)|call\s+kar\s+(?:lena|lo)|de\s+dena|de\s+do)\b/iu;
-  if (!pattern.test(value)) return null;
+  if (!hasHindiAction(value) || hasHindiNegation(value)) return null;
+  if (isJoking(value)) return null;
   const cleaned = value.replace(/^(?:bhai|yaar|bro|please|plz)[,!:;\s]+/iu, "").trim();
   if (!cleaned) return null;
   // "Vikram bhai, kal tak invoice bhej dena" addresses Vikram. A capitalised
@@ -62,7 +65,28 @@ export function extractHinglishAction(body) {
     const rest = addressed.groups.rest.trim();
     if (rest) return { text: rest, owner: name, classification: "assigned_task", origin: "hinglish_rule" };
   }
-  return { text: cleaned, owner: null, classification: "unassigned_action", origin: "hinglish_rule" };
+  const deva = devanagariAddressee(cleaned);
+  if (deva?.rest) return { text: deva.rest.replace(/[।.!?]+$/u, ""), owner: deva.name, classification: "assigned_task", origin: "hinglish_rule" };
+  return { text: cleaned.replace(/[।]+$/u, ""), owner: null, classification: "unassigned_action", origin: "hinglish_rule" };
+}
+
+/** "Banner ka kaam ab Rohan karega": names who now does the work. */
+export function extractHindiAssignment(body) {
+  const match = String(body ?? "").match(/^(?<task>.{3,}?)\s+ab\s+(?<owner>\p{Lu}[\p{L}\p{M}'’.-]*)\s+(?:karega|karegi|dekhega|dekhegi|sambhalega|sambhalegi|handle\s+karega)\b/iu);
+  if (!match) return null;
+  const owner = match.groups.owner;
+  if (NON_NAME_WORDS.has(owner.toLocaleLowerCase()) || RESERVED_SPEAKERS.has(owner.toLocaleLowerCase())) return null;
+  return { text: match.groups.task.trim(), owner, classification: "assigned_task", origin: "hinglish_assignment" };
+}
+
+/** "haan bhai, kar dunga" / "कर दूंगा": first-person Hinglish or Hindi commitment by the speaker. */
+export function extractHindiCommitment(body, speaker) {
+  const value = String(body ?? "").trim();
+  if (!speaker || isJoking(value) || hasHindiNegation(value)) return null;
+  const match = matchHindiCommitment(value);
+  if (!match) return null;
+  const text = value.replace(/^(?:(?:haan|han|ha|ok|okay|ji|bhai|bhaiya|sir|madam|theek\s+hai|thik\s+hai|ठीक\s+है|हाँ|हां)[,.!\s]+)+/iu, "").replace(/[।.!?]+$/u, "").trim();
+  return { text: text || value, owner: speaker, classification: "self_commitment", origin: "self_commitment", bare: isBareCommitment(value, match) };
 }
 
 /** "Neha ko bol do presentation complete kare": Neha is the one who must act. */

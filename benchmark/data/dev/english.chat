@@ -1,0 +1,64 @@
+# DEV split: tune the extractor against these. Dates are DD/MM/YYYY. 02/11/2026 is a Monday.
+
+@chat id=en-client-brochure split=dev cats=english,implied start=02/11/2026
+10:01 Priya: Hi team, we need the revised brochure PDF by Friday. => t1 owner=- due=2026-11-06
+10:03 Rahul: Sure, I'll send it by Thursday evening. => t1 owner=Rahul due=2026-11-05
+10:04 Priya: Great, thanks!
+10:20 Priya: Also can you share the GST invoice for October? => t2 owner=- due=-
+10:25 Rahul: Will do. => t2 owner=Rahul
+10:26 Priya: 👍
+
+@chat id=en-ops-standup split=dev cats=english,explicit start=03/11/2026
+09:00 Sam: Morning all. Quick update: the vendor call is at 4 PM today.
+09:01 Sam: Dev, please fix the checkout bug before the release tomorrow. => t1 owner=Dev due=2026-11-04
+09:03 Dev: On it. => t1
+09:10 Sam: Lisa, can you update the pricing sheet by EOD? => t2 owner=Lisa due=2026-11-03
+09:12 Lisa: Done with the first half, will finish after lunch. => t2
+09:30 Sam: We decided to postpone the launch to next Monday.
+09:31 Tom: haha nice 😂
+09:45 Tom: I'll ping the vendor about delivery dates. => t3 owner=Tom due=-
+
+@chat id=en-negation split=dev cats=english,negation,false-positive start=03/11/2026
+10:00 Anil: Don't send the deck to the client yet.
+10:02 Meera: ok. I won't send it until you confirm.
+10:10 Anil: No need to book the hotel, client cancelled the trip.
+10:15 Meera: I already sent the invoice yesterday.
+10:20 Anil: Please prepare the Q3 summary for Thursday's review. => t1 owner=- due=2026-11-05
+10:22 Meera: Sure. => t1 owner=Meera
+
+@chat id=en-ambiguous-owner split=dev cats=english,ambiguous-owner,false-positive start=04/11/2026
+11:00 Boss: Can someone take the vendor call at 4? => t1 owner=- due=2026-11-04
+11:02 Priya: I can help review the contract.
+11:05 Raj: I'll take it. => t1 owner=Raj
+11:06 Boss: Thanks Raj.
+11:30 Boss: Everyone please submit your timesheets by Friday. => t2 owner=- due=2026-11-06
+11:31 Priya: submitted already
+
+@chat id=en-lifecycle split=dev cats=english,lifecycle,false-positive start=02/11/2026
+14:00 Alex: Mike, please send the revised quote by Wednesday. => t1 owner=Mike due=2026-11-04
+14:02 Mike: Got it. => t1
+--- +1d
+10:00 Mike: Quote sent.
+10:05 Alex: Perfect. Now please book the venue for the offsite. => t2 owner=- due=-
+10:06 Alex: Actually cancel that, we're skipping the offsite.
+
+@chat id=en-chatter split=dev cats=english,false-positive start=04/11/2026
+20:00 Dan: Did you watch the match last night?
+20:01 Sam: Yes! What a game 😂
+20:02 Dan: We should totally go to the next one
+20:03 Sam: haha yes let's plan it sometime
+20:10 Dan: BTW the meeting is at 5 PM tomorrow
+20:11 Sam: ok see you there
+
+@chat id=en-implied-numbers split=dev cats=english,implied start=03/11/2026
+16:00 Boss: Need the Q3 numbers before the review on Thursday. => t1 owner=- due=2026-11-05
+16:05 Boss: Also the vendor contract needs to be signed by next week. => t2 owner=- due=-
+16:10 Asha: Working on the numbers now. => t1 owner=Asha
+16:12 Boss: Don't forget to renew the domain this week. => t3 owner=- due=-
+16:20 Asha: Q3 numbers attached.
+
+@chat id=en-self-commitments split=dev cats=english,explicit start=02/11/2026
+19:00 Neha: I'll update the tracker tonight. => t1 owner=Neha due=2026-11-02
+19:05 Mike: I can send the report tomorrow morning. => t2 owner=Mike due=2026-11-03
+19:07 Neha: ok
+19:10 Mike: will check with legal about the wording too => t3 owner=Mike due=-

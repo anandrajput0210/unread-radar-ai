@@ -4,6 +4,7 @@ export function createEmptyAnalysis() {
   return {
     summary: [],
     actions: [],
+    reviewQueue: [],
     decisions: [],
     deadlines: [],
     mentions: [],

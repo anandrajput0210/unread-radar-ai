@@ -1,9 +1,11 @@
-import { directAddressActions, extractBulletAssignments, extractHinglishAction, extractOverdueFollowup, extractRelayAction, extractSelfCommitment, hasActionDirective, inferAssignee, taskClassificationFor } from "./candidates.js";
+import { directAddressActions, extractBulletAssignments, extractHindiAssignment, extractHindiCommitment, extractHinglishAction, extractOverdueFollowup, extractRelayAction, extractSelfCommitment, hasActionDirective, inferAssignee, taskClassificationFor } from "./candidates.js";
 import { conditionFor, extractBlockedPrecondition, resolveConditionAcrossConversation } from "./conditions.js";
-import { ACTION_LABEL_REGEX } from "./constants.js";
+import { ACTION_LABEL_REGEX, IMPERATIVE_REGEX, REQUEST_REGEX, TASK_VERB_SOURCE } from "./constants.js";
+import { extractImpliedRequest } from "./implied.js";
+import { extractCollective } from "./collective.js";
 import { resolveDeadlineDate } from "./dates.js";
 import { applyTaskLifecycle } from "./lifecycle.js";
-import { addSupportingDetail, findUniquePriorAction, matchesAcknowledgement, ownerMatchesSpeaker, relationScore } from "./matching.js";
+import { addSupportingDetail, findUniqueOwnedAction, findUniquePriorAction, matchesAcknowledgement, ownerMatchesSpeaker, relationScore } from "./matching.js";
 import { conversationMessageRecords, parseChatRecord, recordMeta, resolveParseOptions } from "./records.js";
 import { sourceSpan, uniqueBy, urgencyFor } from "./text.js";
 import { dueDateStatusForAction, extractDueSignal } from "./timing.js";
@@ -57,8 +59,17 @@ export function extractActions(text, options = {}) {
       }
     }
 
+    // Collective statements ("we need to...", "let's...") are sorted into obligation,
+    // proposal, or not-a-task before anything else can mistake them for a request.
+    // A named addressee in the same message ("Mike, can you... We must finalize by Monday")
+    // still wins: collective handling only applies when nobody was addressed.
     let candidates = extractBulletAssignments(body);
     if (!candidates.length) candidates = directAddressActions(body);
+    if (!candidates.length) {
+      const collective = extractCollective(body);
+      if (collective?.skip) continue;
+      if (collective?.candidate) candidates = [collective.candidate];
+    }
 
     if (!candidates.length) {
       const relay = extractRelayAction(body);
@@ -73,6 +84,16 @@ export function extractActions(text, options = {}) {
     if (!candidates.length) {
       const hinglishAction = extractHinglishAction(body);
       if (hinglishAction) candidates = [hinglishAction];
+    }
+
+    if (!candidates.length) {
+      const hindiAssignment = extractHindiAssignment(body);
+      if (hindiAssignment) candidates = [hindiAssignment];
+    }
+
+    if (!candidates.length) {
+      const hindiCommitment = extractHindiCommitment(body, speaker);
+      if (hindiCommitment) candidates = [hindiCommitment];
     }
 
     if (!candidates.length) {
@@ -96,16 +117,35 @@ export function extractActions(text, options = {}) {
       const fallbackText = actionLabel ? actionLabel[1].trim() : body;
       if (fallbackText) {
         const request = /\b(?:can|could|would)\s+(?:you|someone|anyone|somebody)\b/iu.test(body);
-        candidates = [{ text: fallbackText, owner: null, classification: request ? "unassigned_request" : "unassigned_action" }];
+        // "We should call the vendor" is a suggestion, not a request: keep it for review.
+        const strongCue = REQUEST_REGEX.test(body) || IMPERATIVE_REGEX.test(body) || ACTION_LABEL_REGEX.test(body) || /\b(?:must|have to|has to)\b/iu.test(body);
+        candidates = [{
+          text: fallbackText,
+          owner: null,
+          classification: request ? "unassigned_request" : "unassigned_action",
+          ...(strongCue ? {} : { outcome: "possible", outcomeReason: "Suggestion (\"should\u2026\"), not a direct request" }),
+        }];
       }
     }
 
-    const dueDate = extractDueSignal(body, { allowCommitmentTiming: true });
+    if (!candidates.length) {
+      const implied = extractImpliedRequest(body, speaker);
+      if (implied) candidates = [implied];
+    }
+
+    candidates = candidates.flatMap(splitCompoundRequest);
+
+    const messageDue = extractDueSignal(body, { allowCommitmentTiming: true });
     const condition = conditionFor(body);
 
     candidates.forEach((candidate, index) => {
       const candidateText = candidate.text.trim();
       if (!candidateText) return;
+      // "Banner ka kaam ab Rohan karega" about work that already has a task is a
+      // reassignment, which the lifecycle step handles; it is not a second task.
+      if (candidate.origin === "hinglish_assignment" && actions.some((earlier) => relationScore(earlier.text, candidateText) >= 0.28)) return;
+      // With several tasks in one message, a deadline belongs to the sentence it appears in.
+      const dueDate = candidates.length > 1 ? dueWithinOwnSentence(body, candidateText, messageDue) : messageDue;
       const messageMeta = record.meta ?? parseChatRecord(String(record.rawText ?? line).split(/\r?\n/u)[0], options);
       const action = {
         id: `task-${record.ordinal}-${index}-${candidateText.slice(0, 16)}`,
@@ -119,6 +159,8 @@ export function extractActions(text, options = {}) {
         resolvedDueDate: dueDate ? resolveDeadlineDate(dueDate, messageMeta.timestamp?.date || null, options) : null,
         dueDateStatus: dueDate ? dueDateStatusForAction(candidateText, dueDate, body) : null,
         urgency: urgencyFor(body),
+        outcome: candidate.outcome || "confirmed",
+        outcomeReason: candidate.outcomeReason || null,
         condition,
         conditionStatus: condition ? "pending_verification" : null,
         supportingDetails: [],
@@ -153,9 +195,11 @@ export function extractActions(text, options = {}) {
       // A later first-person commitment that repeats an already assigned task
       // is an acknowledgement/refinement, not a duplicate task. Match only
       // with the same identified owner and a strong, unique content overlap.
-      const previous = action.owner
+      let previous = action.owner
         ? findUniquePriorAction(actions, action.owner, action.text, record, { minimumScore: 0.30 })
         : null;
+      // "kar dunga" names no deliverable, so it can only refer to the speaker's single earlier task.
+      if (!previous && candidate.bare && action.owner) previous = findUniqueOwnedAction(actions, action.owner, record);
       if (previous) {
         const isAcknowledgement = /^(?:got\s+it|understood|yes|sure|okay|ok|noted|thanks|thank\s+you)\b/iu.test(body);
         if (isAcknowledgement || candidate.origin === "self_commitment") {
@@ -174,6 +218,20 @@ export function extractActions(text, options = {}) {
           }
           return;
         }
+      }
+      if (candidate.bare) {
+        action.outcome = "possible";
+        action.outcomeReason = "Promises to act but names no deliverable and matches no earlier task";
+      }
+      // The same work stated twice is one task. A collective statement ("we need to send
+      // the proposal") followed by an explicit request for it ("can someone send the
+      // proposal by Friday") keeps the explicit one and records the earlier line as context.
+      action.collective = candidate.origin === "collective";
+      const restated = actions.filter((earlier) => !earlier.owner && relationScore(earlier.text, action.text) >= 0.5);
+      if (action.collective && restated.length) return;
+      for (const earlier of restated.filter((item) => item.collective)) {
+        actions.splice(actions.indexOf(earlier), 1);
+        action.supportingDetails.push({ text: earlier.sourceText, sourceSpan: earlier.sourceSpan, kind: "restated-collective" });
       }
       actions.push(action);
     });
@@ -213,4 +271,23 @@ export function extractActions(text, options = {}) {
     decisions: uniqueBy(decisions, (item) => item.toLowerCase()),
     decisionEvidence: uniqueBy(decisionEvidence, (item) => item.text.toLowerCase()),
   };
+}
+
+// "send the invoice and update the tracker by Friday" is two tasks. Split only when
+// both halves have their own object, so "review and approve the doc" stays one task.
+const COMPOUND = new RegExp(String.raw`^(?<first>(?:please\s+)?(?:${TASK_VERB_SOURCE})\s+\S+(?:\s+\S+)*?)\s+and\s+(?:also\s+)?(?<second>(?:${TASK_VERB_SOURCE})\s+\S+(?:\s+\S+)*)$`, "iu");
+function splitCompoundRequest(candidate) {
+  // Owned tasks keep their existing single-task behaviour; only unowned fallback requests are split.
+  if (candidate.origin || candidate.owner || candidate.outcome === "possible") return [candidate];
+  const m = COMPOUND.exec(candidate.text.trim());
+  if (!m) return [candidate];
+  return [{ ...candidate, text: m.groups.first.trim() }, { ...candidate, text: m.groups.second.trim() }];
+}
+
+function dueWithinOwnSentence(body, candidateText, messageDue) {
+  const sentences = String(body).split(/(?<=[.!?;])\s+/u);
+  if (sentences.length < 2) return messageDue;
+  const key = candidateText.toLocaleLowerCase().slice(0, 18);
+  const own = sentences.find((sentence) => sentence.toLocaleLowerCase().includes(key));
+  return own ? extractDueSignal(own, { allowCommitmentTiming: true }) : messageDue;
 }

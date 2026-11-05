@@ -1,0 +1,351 @@
+{
+  "split": "dev",
+  "strict": {
+    "overall": {
+      "goldTasks": 26,
+      "found": 16,
+      "missed": 10,
+      "falsePositives": 1,
+      "duplicates": 0,
+      "precision": 94.1,
+      "recall": 61.5,
+      "ownerAccuracy": 70,
+      "ownerFalseAssignments": 0,
+      "deadlineAccuracy": 60,
+      "spuriousDeadlines": 0,
+      "possibleTier": {
+        "truePositives": 0,
+        "falsePositives": 0
+      }
+    },
+    "categories": {
+      "english": {
+        "goldTasks": 16,
+        "found": 10,
+        "missed": 6,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 62.5,
+        "ownerAccuracy": 75,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 62.5,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "implied": {
+        "goldTasks": 8,
+        "found": 4,
+        "missed": 4,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 50,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "explicit": {
+        "goldTasks": 11,
+        "found": 7,
+        "missed": 4,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 63.6,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 60,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "negation": {
+        "goldTasks": 2,
+        "found": 1,
+        "missed": 1,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 50,
+        "recall": 50,
+        "ownerAccuracy": 0,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 0,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "false-positive": {
+        "goldTasks": 6,
+        "found": 4,
+        "missed": 2,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 80,
+        "recall": 66.7,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 66.7,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "ambiguous-owner": {
+        "goldTasks": 3,
+        "found": 2,
+        "missed": 1,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 66.7,
+        "ownerAccuracy": 0,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "lifecycle": {
+        "goldTasks": 2,
+        "found": 2,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hinglish": {
+        "goldTasks": 10,
+        "found": 6,
+        "missed": 4,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 85.7,
+        "recall": 60,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "devanagari": {
+        "goldTasks": 2,
+        "found": 0,
+        "missed": 2,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": null,
+        "recall": 0,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      }
+    }
+  },
+  "lenient": {
+    "overall": {
+      "goldTasks": 26,
+      "found": 16,
+      "missed": 10,
+      "falsePositives": 1,
+      "duplicates": 0,
+      "precision": 94.1,
+      "recall": 61.5,
+      "ownerAccuracy": 70,
+      "ownerFalseAssignments": 0,
+      "deadlineAccuracy": 60,
+      "spuriousDeadlines": 0,
+      "possibleTier": {
+        "truePositives": 0,
+        "falsePositives": 0
+      }
+    },
+    "categories": {
+      "english": {
+        "goldTasks": 16,
+        "found": 10,
+        "missed": 6,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 62.5,
+        "ownerAccuracy": 75,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 62.5,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "implied": {
+        "goldTasks": 8,
+        "found": 4,
+        "missed": 4,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 50,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "explicit": {
+        "goldTasks": 11,
+        "found": 7,
+        "missed": 4,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 63.6,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 60,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "negation": {
+        "goldTasks": 2,
+        "found": 1,
+        "missed": 1,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 50,
+        "recall": 50,
+        "ownerAccuracy": 0,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 0,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "false-positive": {
+        "goldTasks": 6,
+        "found": 4,
+        "missed": 2,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 80,
+        "recall": 66.7,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 66.7,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "ambiguous-owner": {
+        "goldTasks": 3,
+        "found": 2,
+        "missed": 1,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 66.7,
+        "ownerAccuracy": 0,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "lifecycle": {
+        "goldTasks": 2,
+        "found": 2,
+        "missed": 0,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": 100,
+        "recall": 100,
+        "ownerAccuracy": 100,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 100,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "hinglish": {
+        "goldTasks": 10,
+        "found": 6,
+        "missed": 4,
+        "falsePositives": 1,
+        "duplicates": 0,
+        "precision": 85.7,
+        "recall": 60,
+        "ownerAccuracy": 50,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": 50,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      },
+      "devanagari": {
+        "goldTasks": 2,
+        "found": 0,
+        "missed": 2,
+        "falsePositives": 0,
+        "duplicates": 0,
+        "precision": null,
+        "recall": 0,
+        "ownerAccuracy": null,
+        "ownerFalseAssignments": 0,
+        "deadlineAccuracy": null,
+        "spuriousDeadlines": 0,
+        "possibleTier": {
+          "truePositives": 0,
+          "falsePositives": 0
+        }
+      }
+    }
+  }
+}

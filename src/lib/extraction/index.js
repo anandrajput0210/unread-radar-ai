@@ -8,3 +8,4 @@ export { extractDeadlines } from "./timing.js";
 export { extractMentions } from "./mentions.js";
 export { urgencyFor } from "./text.js";
 export { resolveDeadlineDate } from "./dates.js";
+export { extractReviewQueue } from "./possible.js";

@@ -1,0 +1,19 @@
+# Milestone D · DEV · English. 02/11/2026 is a Monday.
+@chat id=d-en-assign split=dev cats=english,explicit start=02/11/2026
+09:00 Maya: Karan, please send the signed contract by Wednesday. => t1 owner=Karan due=2026-11-04
+09:05 Karan: Will do. => t1 status=acknowledged
+
+@chat id=d-en-commit-tonight split=dev cats=english,explicit start=02/11/2026
+20:00 Ravi: I'll push the hotfix tonight. => t1 owner=Ravi due=2026-11-02
+
+@chat id=d-en-polite-question split=dev cats=english,explicit start=02/11/2026
+11:00 Tara: Could you review the draft before the 3 PM call? => t1 owner=- due=-
+11:03 Sam: Sure, on it. => t1 owner=Sam status=acknowledged
+
+@chat id=d-en-fyi split=dev cats=english,false-positive start=02/11/2026
+14:00 Lee: FYI the server migration finished yesterday.
+14:01 Joe: great, thanks
+14:05 Lee: The new dashboard looks good to me.
+
+@chat id=d-en-two-assignments split=dev cats=english,explicit,ambiguity start=02/11/2026
+15:00 Dana: Ben, update the pricing page. Priya, send the press kit to Reuters by Friday. => t1 owner=Ben due=-; t2 owner=Priya due=2026-11-06

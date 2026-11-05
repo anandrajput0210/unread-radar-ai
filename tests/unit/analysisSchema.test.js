@@ -4,7 +4,7 @@ import { combineAnalysisChunks, createEmptyAnalysis, normalizeModelChunk } from 
 
 test("empty analysis has a stable shape", () => {
   assert.deepEqual(createEmptyAnalysis(), {
-    summary: [], actions: [], decisions: [], deadlines: [], mentions: [], urgentRows: [], alerts: [], lineCount: 0, sourceChunks: 0, modelId: "",
+    summary: [], actions: [], reviewQueue: [], decisions: [], deadlines: [], mentions: [], urgentRows: [], alerts: [], lineCount: 0, sourceChunks: 0, modelId: "",
   });
 });
 

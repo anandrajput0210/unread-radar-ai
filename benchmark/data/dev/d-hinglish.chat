@@ -1,0 +1,17 @@
+# Milestone D · DEV · Hinglish
+@chat id=d-hi-request split=dev cats=hinglish,explicit start=02/11/2026
+19:00 Vikas: Neha, kal tak report bhej dena. => t1 owner=Neha due=2026-11-03
+
+@chat id=d-hi-commit-ack split=dev cats=hinglish,explicit start=02/11/2026
+19:00 Boss: Aman, client ko proposal mail kar do. => t1 owner=Aman due=-
+19:05 Aman: ji sir, kar deta hoon => t1 status=acknowledged
+
+@chat id=d-hi-cancelled-info split=dev cats=hinglish,negation,false-positive start=02/11/2026
+10:00 Kunal: slides mat banana, client ne cancel kar diya
+10:02 Isha: ok
+
+@chat id=d-hi-collective split=dev cats=hinglish,collective start=02/11/2026
+11:00 Raj: humein roadmap finalize karna hai => t1 owner=- due=-
+
+@chat id=d-hi-obligation split=dev cats=hinglish,deadlines,collective start=02/11/2026
+16:00 Sonal: bhai kal tak GST return file karna padega => t1 owner=- due=2026-11-03 level=possible

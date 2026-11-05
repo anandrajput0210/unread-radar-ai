@@ -1,4 +1,5 @@
 import { extractActions } from "./actions.js";
+import { extractReviewQueue } from "./possible.js";
 import { extractMentions } from "./mentions.js";
 import { buildSummary } from "./summary.js";
 import { sourceLineRecords, sourceSpan, uniqueBy, urgencyFor } from "./text.js";
@@ -8,7 +9,7 @@ export function analyzeConversations(rawText, options = {}) {
   const text = typeof rawText === "string" ? rawText : "";
   if (!text.trim()) {
     return {
-      actions: [], decisions: [], decisionEvidence: [], deadlines: [], mentions: [],
+      actions: [], reviewQueue: [], decisions: [], decisionEvidence: [], deadlines: [], mentions: [],
       summary: [], alerts: [], urgentRows: [], urgentRowEvidence: [], lineCount: 0,
     };
   }
@@ -24,6 +25,7 @@ export function analyzeConversations(rawText, options = {}) {
   const mentions = extractMentions(text, options);
   const deadlines = extractDeadlines(text, options);
   const { actions, decisions, decisionEvidence } = extractActions(text, options);
+  const reviewQueue = extractReviewQueue(text, options, actions);
 
   const alerts = uniqueBy(
     [
@@ -43,6 +45,7 @@ export function analyzeConversations(rawText, options = {}) {
 
   return {
     actions,
+    reviewQueue,
     decisions,
     decisionEvidence,
     deadlines,

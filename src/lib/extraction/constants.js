@@ -81,6 +81,13 @@ export const TASK_VERB_SOURCE = [...TASK_VERBS]
   .map((verb) => escapeRegex(verb).replace(/\s+/g, "\\s+"))
   .join("|");
 
+/** Verbs accepted after an explicit request marker ("can you ...", "please ..."). Wider than TASK_VERBS, which also drives weaker imperative matching. */
+export const EXTRA_REQUEST_VERBS = ["take", "handle", "join", "attend", "ping", "remind", "chase", "arrange", "renew", "sign", "pay", "transfer", "print", "order", "resend", "pick", "collect", "fix up", "push"];
+export const REQUEST_VERB_SOURCE = [...TASK_VERBS, ...EXTRA_REQUEST_VERBS]
+  .sort((a, b) => b.length - a.length)
+  .map((verb) => escapeRegex(verb).replace(/\s+/g, "\\s+"))
+  .join("|");
+
 export const HANDLE_SOURCE = String.raw`[\p{L}\p{N}_-](?:[\p{L}\p{N}._-]{0,38}[\p{L}\p{N}_-])?`;
 
 export const MENTION_REGEX = new RegExp(
@@ -89,13 +96,13 @@ export const MENTION_REGEX = new RegExp(
 );
 
 export const TIMING_TOKEN_REGEX =
-  /\b(?:day\s+after\s+tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|kal\s+tak|aaj|today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|noon|midnight))?(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s?(?:am|pm))?|\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b|\b(?:\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})\b/giu;
+  /\b(?:day\s+after\s+tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|kal\s+(?:(?:subah|shaam|sham|raat|dopahar)\s+)?tak|parso\s+tak|eod|end\s+of\s+(?:the\s+)?day|cob|aaj|today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:morning|afternoon|evening|noon|midnight))?(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s?(?:am|pm))?|\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b|\b(?:\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})\b|(?<![\p{L}\p{M}])(?:सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार|कल|आज|परसों)(?:\s+(?:सुबह|दोपहर|शाम|रात))?\s+तक(?![\p{L}\p{M}])/giu;
 
 export const ACTION_LABEL_REGEX =
   /(?:^|:\s*)\b(?:action(?:\s+item)?|todo|to-do)\b\s*(?::|—|–|-)\s*(.*)$/i;
 
 export const REQUEST_REGEX = new RegExp(
-  String.raw`\b(?:please|can\s+(?:you|someone|anyone|somebody)|could\s+(?:you|someone|anyone|somebody)|would\s+you)\s+(?:${TASK_VERB_SOURCE})\b`,
+  String.raw`\b(?:please|pl[sz]|can\s+(?:you|someone|anyone|somebody)|could\s+(?:you|someone|anyone|somebody)|would\s+you)\s+(?:also\s+)?(?:${REQUEST_VERB_SOURCE})\b`,
   "i"
 );
 
@@ -104,8 +111,13 @@ export const MODAL_DIRECTIVE_REGEX = new RegExp(
   "i"
 );
 
+const COMMITMENT_VERB_SOURCE = [...TASK_VERBS, ...EXTRA_REQUEST_VERBS.filter((verb) => !["take", "handle"].includes(verb))]
+  .sort((a, b) => b.length - a.length)
+  .map((verb) => escapeRegex(verb).replace(/\s+/g, "\\s+"))
+  .join("|");
+
 export const COMMITMENT_REGEX = new RegExp(
-  String.raw`\b(?<pronoun>I|we)(?:['’]ll|\s+(?:can|will|shall|am going to|are going to))\s+(?<verb>${TASK_VERB_SOURCE})\b`,
+  String.raw`\b(?<pronoun>I|we)(?:['’]ll|\s+(?:can|will|shall|am going to|are going to))\s+(?<verb>${COMMITMENT_VERB_SOURCE})\b`,
   "giu"
 );
 

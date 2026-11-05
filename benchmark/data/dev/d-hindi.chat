@@ -1,0 +1,13 @@
+# Milestone D · DEV · Hindi (Devanagari)
+@chat id=d-dv-request split=dev cats=hindi,explicit start=02/11/2026
+10:00 सुनीता: रोहन, शुक्रवार तक रिपोर्ट भेज देना। => t1 owner=रोहन due=2026-11-06
+
+@chat id=d-dv-commit split=dev cats=hindi,explicit start=02/11/2026
+10:05 रोहन: मैं आज शाम तक रिपोर्ट भेज दूंगा। => t1 owner=रोहन due=2026-11-02
+
+@chat id=d-dv-negation split=dev cats=hindi,negation,false-positive start=02/11/2026
+11:00 अनिल: अभी इनवॉइस मत भेजना।
+
+@chat id=d-dv-chatter split=dev cats=hindi,false-positive start=02/11/2026
+21:00 पूजा: कल का मैच देखा?
+21:01 अनिल: हाँ, बहुत मज़ा आया

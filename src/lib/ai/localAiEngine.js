@@ -128,6 +128,8 @@ function mergeRuleFindings(rawText, modelAnalysis, sourceSnapshot) {
       dueDate,
       dueDateStatus: item.dueDateStatus || (dueDate ? "unverified" : null),
       urgency: item.urgency || urgencyFor(item.text),
+      outcome: item.outcome || "confirmed",
+      outcomeReason: item.outcomeReason || null,
       evidence: item.text,
       // Rule matches are not model confidence scores. Leave confidence unset.
       confidence: null,
@@ -171,6 +173,8 @@ function mergeRuleFindings(rawText, modelAnalysis, sourceSnapshot) {
       text: modelAction.text,
       owner: null,
       classification: "model_candidate",
+      outcome: "possible",
+      outcomeReason: "Suggested by the on-device model only; no rule matched",
       dueDate: literalDueDate,
       dueDateStatus: literalDueDate ? "unverified" : null,
       urgency: "Low",
@@ -290,10 +294,17 @@ function mergeRuleFindings(rawText, modelAnalysis, sourceSnapshot) {
     ...urgentRows,
   ].filter((item) => item.sourceEvidence);
 
+  // The review queue ("possible" / "insufficient context" messages that are NOT tasks) must
+  // reach the UI, and every item must carry a validated exact-quote reference like tasks do.
+  const reviewQueue = (rules.reviewQueue || [])
+    .map((item) => addSourceEvidence({ ...item }, sourceSnapshot, item.sourceSpan))
+    .filter((item) => item.sourceEvidence && item.sourceReferenceStatus === "valid");
+
   return {
     ...modelAnalysis,
     summary: buildSourceGroundedSummary(rules, sourceSnapshot),
     actions,
+    reviewQueue,
     decisions,
     decisionFindings,
     deadlines,
@@ -514,7 +525,7 @@ async function analyzeChunk(engine, chunk, index, total, onProgress) {
 
 function emptyModelAnalysis(modelId = "rules-only") {
   return {
-    summary: [], actions: [], decisions: [], deadlines: [], mentions: [],
+    summary: [], actions: [], reviewQueue: [], decisions: [], deadlines: [], mentions: [],
     urgentRows: [], alerts: [], lineCount: 0, sourceChunks: 0, modelId,
     analysisMode: modelId === "rules-only" ? "rules-only" : "webgpu-model-plus-rules",
   };

@@ -1,0 +1,21 @@
+# Milestone D · DEV · Lifecycle (status = final conversation status)
+@chat id=d-lc-complete split=dev cats=lifecycle,english start=02/11/2026
+10:00 Max: Zara, please send the report by Friday. => t1 owner=Zara due=2026-11-06 status=completed
+10:10 Zara: Report sent. => t1
+
+@chat id=d-lc-delay split=dev cats=lifecycle,english start=02/11/2026
+10:00 Max: Zara, please send the report by Wednesday. => t1 owner=Zara due=2026-11-04 status=delayed
+--- +1d
+10:00 Zara: Running late, will send it on Thursday instead. => t1 due=2026-11-05
+
+@chat id=d-lc-cancel split=dev cats=lifecycle,english start=02/11/2026
+10:00 Max: Zara, please book the venue. => t1 owner=Zara due=- status=cancelled
+10:05 Max: Scratch that, we're not booking the venue anymore.
+
+@chat id=d-lc-reassign split=dev cats=lifecycle,english start=02/11/2026
+10:00 Max: Zara, please prepare the slides by Thursday. => t1 owner=Rohan due=2026-11-05 status=reassigned
+10:10 Max: Actually Rohan will prepare the slides instead of Zara. => t1
+
+@chat id=d-lc-ack split=dev cats=lifecycle,english start=02/11/2026
+10:00 Max: Zara, please send the invoice. => t1 owner=Zara due=- status=acknowledged
+10:02 Zara: Got it.

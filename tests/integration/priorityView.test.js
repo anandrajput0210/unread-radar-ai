@@ -58,17 +58,17 @@ test("groups multiple standalone signal types from one message into one priority
   assert.equal(view.counts.High, 1);
 });
 
-test("the six-message project demo counts three candidates, not six overlapping signals", async () => {
+test("the six-message project demo counts four candidates (including the collective roadmap obligation), not six overlapping signals", async () => {
   const { readFile } = await import("node:fs/promises");
   const { analyzeTextWithRules } = await import("../../src/lib/ai/localAiEngine.js");
   const demo = await readFile(new URL("../../examples/demo-six-message-chat.txt", import.meta.url), "utf8");
   const analysis = await analyzeTextWithRules(demo);
   const view = buildPriorityView(analysis);
 
-  assert.equal(view.uniqueTaskCount, 3);
-  assert.equal(view.uniquePriorityCount, 3);
+  assert.equal(view.uniqueTaskCount, 4);
+  assert.equal(view.uniquePriorityCount, 4);
   assert.equal(view.linkedSignalCount, 3);
   assert.equal(view.standaloneSignalCount, 0);
-  assert.deepEqual(view.taskCounts, { High: 1, Medium: 1, Low: 1 });
+  assert.deepEqual(view.taskCounts, { High: 1, Medium: 1, Low: 2 });
   assert.equal(analysis.modelExecution, undefined, "rules-only analysis must not claim that Qwen inference ran");
 });

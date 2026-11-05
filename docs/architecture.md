@@ -75,3 +75,8 @@ Every behaviour change needs a test in `tests/unit` (pure logic) or `tests/integ
 | `tests/integration` | Full analysis engine, fixtures, cross-message accuracy, WebLLM compatibility |
 | `tests/benchmark` | Synthetic regression corpus (not a real-world accuracy score) |
 | `tests/fixtures` | Chats and expected outcomes |
+
+## Additional extraction modules
+- `extraction/hindi.js` – Hinglish/Devanagari patterns and negation.
+- `extraction/implied.js` – implied requests (possible tasks).
+- `extraction/collective.js` – "we need to / let's / we should" sorted into obligation, proposal or not-a-task.

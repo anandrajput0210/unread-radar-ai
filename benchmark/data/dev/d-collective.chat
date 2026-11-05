@@ -1,0 +1,30 @@
+# Milestone D · DEV · Collective commitments, suggestions, decisions, hypotheticals
+@chat id=d-co-need-roadmap split=dev cats=collective,english start=02/11/2026
+10:00 Anita: We need to finalize the Q4 product roadmap. => t1 owner=- due=-
+
+@chat id=d-co-have-to-deadline split=dev cats=collective,english,deadlines start=02/11/2026
+10:00 Anita: We have to submit the compliance report by Friday. => t1 owner=- due=2026-11-06
+
+@chat id=d-co-should split=dev cats=collective,english start=02/11/2026
+10:00 Vik: We should prepare the presentation. => t1 owner=- due=- level=possible
+
+@chat id=d-co-lets-team split=dev cats=collective,english,deadlines start=02/11/2026
+10:00 Manager: Team, let's complete the deployment by Thursday. => t1 owner=- due=2026-11-05
+
+@chat id=d-co-lets-casual split=dev cats=collective,english start=02/11/2026
+10:00 Sid: Let's finish the deck. => t1 owner=- due=- level=possible
+
+@chat id=d-co-hypothetical split=dev cats=collective,english,false-positive start=02/11/2026
+10:00 Anita: If we need to finalize the roadmap early, I'll let you know.
+10:01 Vik: We might need to submit the report next month.
+10:02 Anita: Do we need to update the slides?
+
+@chat id=d-co-decisions split=dev cats=collective,english,false-positive start=02/11/2026
+10:00 Anita: We decided to postpone the launch to next quarter.
+10:01 Vik: We agreed to meet on Friday.
+10:02 Anita: We need to decide on pricing.
+
+@chat id=d-co-negated-past split=dev cats=collective,english,negation,false-positive start=02/11/2026
+10:00 Anita: We don't need to submit the report anymore.
+10:01 Vik: We already finalized the roadmap last week.
+10:02 Anita: We had to redo the slides yesterday, but it's done now.
