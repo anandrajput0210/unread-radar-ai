@@ -40,11 +40,48 @@ npm run build
 npm run preview
 ```
 
+## Project structure
+
+```
+src/
+  App.jsx                 Page layout and state orchestration
+  components/             UI building blocks (TaskCard, PriorityItem, ImportReview, ui/*)
+  lib/
+    import/               Chat-export parsing and immutable source snapshots
+    extraction/           Deterministic extraction engine (tasks, dates, Hinglish, lifecycle, conditions)
+    ai/                   WebLLM engine, model-output schema, result cache
+    validation/           Exact-quote evidence references
+    views/                Priority view, review workflow, source-grounded summary
+    export/               Markdown brief and clipboard summary builders (pure functions)
+    ui/                   Small formatting helpers shared by components
+tests/
+  unit/  integration/  benchmark/  fixtures/
+docs/                     Architecture, parser, lifecycle, benchmark and deployment notes
+examples/                 Demo chat for manual testing
+```
+
+See [docs/architecture.md](./docs/architecture.md) for the data flow and for where to add new behaviour.
+
+## Documentation
+
+| Topic | File |
+|---|---|
+| Architecture and module map | [docs/architecture.md](./docs/architecture.md) |
+| WhatsApp formats, Hinglish and date handling | [docs/parser-compatibility.md](./docs/parser-compatibility.md) |
+| Task lifecycle states | [docs/task-lifecycle.md](./docs/task-lifecycle.md) |
+| Cross-speaker condition states | [docs/condition-state.md](./docs/condition-state.md) |
+| Local AI pipeline | [docs/local-ai.md](./docs/local-ai.md) |
+| Benchmark method and limits | [docs/benchmark.md](./docs/benchmark.md) |
+| Synthetic-chat accuracy report | [docs/accuracy-report.md](./docs/accuracy-report.md) |
+| Browser validation and manual tests | [docs/browser-validation.md](./docs/browser-validation.md) |
+| Deployment | [docs/deployment.md](./docs/deployment.md) |
+| Build changelog | [docs/changelog.md](./docs/changelog.md) |
+
 ## Production deployment
 
 This is a static Vite frontend. The current application does not require an application backend, database, hosted model endpoint, or API key. Use the repository root as the project root, install with `npm ci`, build with `npm run build`, and serve the generated `dist/` directory. Do not add a placeholder backend or replace browser-local inference with a hosted provider as part of deployment.
 
-The Vite development and preview servers and the included Vercel configuration set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Preserve these settings where the hosting platform allows them. The Emergent-hosted HTTPS preview must still be tested directly: a successful build does not prove that the hosted browser can initialize WebLLM or complete Qwen inference. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the release gate.
+The Vite development and preview servers and the included Vercel configuration set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Preserve these settings where the hosting platform allows them. The Emergent-hosted HTTPS preview must still be tested directly: a successful build does not prove that the hosted browser can initialize WebLLM or complete Qwen inference. See [docs/deployment.md](./docs/deployment.md) for the release gate.
 
 ## Privacy and limitations
 
@@ -73,7 +110,7 @@ The priority view is task-first: each action candidate is counted once. Deadline
 
 The UI and exported brief distinguish a completed browser-local WebLLM inference run from rules-only analysis. A Qwen completion record is created only after every segment returns valid structured output. The catch-up summary itself remains deterministic and source-grounded.
 
-The project includes 20 synthetic parser regression fixtures. They validate selected behaviours but do not establish real-world accuracy. See [BENCHMARK_GUIDE.md](./BENCHMARK_GUIDE.md) for limitations and a human-labelled evaluation procedure.
+The project includes 20 synthetic parser regression fixtures. They validate selected behaviours but do not establish real-world accuracy. See [docs/benchmark.md](./docs/benchmark.md) for limitations and a human-labelled evaluation procedure.
 
 ## Accuracy safeguards and cross-message context
 
@@ -86,4 +123,4 @@ Task cards display exact primary evidence, linked acknowledgements, and related 
 
 ## Cross-speaker condition states
 
-Prerequisites can be resolved from later messages by Legal, Compliance, QA, or other participants. Explicit revocation/correction supersedes an earlier approval; unresolved contradictions remain ambiguous. Both current and superseded statements remain linked to exact source messages. See `CONDITION_STATE_GUIDE.md`.
+Prerequisites can be resolved from later messages by Legal, Compliance, QA, or other participants. Explicit revocation/correction supersedes an earlier approval; unresolved contradictions remain ambiguous. Both current and superseded statements remain linked to exact source messages. See `docs/condition-state.md`.
