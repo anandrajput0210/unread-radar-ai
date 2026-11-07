@@ -30,6 +30,21 @@ export function extractImpliedRequest(body, speaker) {
   const value = String(body ?? "").trim();
   if (!value || isJoking(value) || hasHindiNegation(value)) return null;
 
+  // A concrete defect report about material the recipient supplied can imply
+  // remediation. Keep it Possible and ownerless until the conversation shows
+  // an explicit acceptance or a human confirms it.
+  const defect = value.match(/\b(?<item>(?:logo|design|image|photo|file|asset|document|pdf|attachment)(?:\s+[\p{L}\p{M}]+){0,2})\s+you\s+(?:sent|shared|provided)\s+(?:is|are)\s+(?:corrupt(?:ed)?|damaged|broken)\b/iu);
+  if (defect && !/\b(?:already\s+(?:fixed|replaced|resent|resolved)|no\s+need\s+to\s+(?:fix|resend))\b/iu.test(value)) {
+    return {
+      text: `resend ${defect.groups.item.trim()}`,
+      owner: null,
+      classification: "unassigned_request",
+      origin: "implied_complaint",
+      outcome: "possible",
+      outcomeReason: "Reports a defect in supplied material; the remediation request is implied and needs review",
+    };
+  }
+
   if (!NEED_NEGATION.test(value)) {
     const need = value.match(NEED);
     if (need && DEADLINE_CUE.test(need.groups.what)) {

@@ -2,7 +2,7 @@
 
 @chat id=en-client-brochure split=dev cats=english,implied start=02/11/2026
 10:01 Priya: Hi team, we need the revised brochure PDF by Friday. => t1 owner=- due=2026-11-06
-10:03 Rahul: Sure, I'll send it by Thursday evening. => t1 owner=Rahul due=2026-11-05
+10:03 Rahul: Sure, I'll send it by Thursday evening. => t1 owner=Rahul due=2026-11-06
 10:04 Priya: Great, thanks!
 10:20 Priya: Also can you share the GST invoice for October? => t2 owner=- due=-
 10:25 Rahul: Will do. => t2 owner=Rahul
@@ -27,7 +27,7 @@
 10:22 Meera: Sure. => t1 owner=Meera
 
 @chat id=en-ambiguous-owner split=dev cats=english,ambiguous-owner,false-positive start=04/11/2026
-11:00 Boss: Can someone take the vendor call at 4? => t1 owner=- due=2026-11-04
+11:00 Boss: Can someone take the vendor call at 4? => t1 owner=- due=-
 11:02 Priya: I can help review the contract.
 11:05 Raj: I'll take it. => t1 owner=Raj
 11:06 Boss: Thanks Raj.

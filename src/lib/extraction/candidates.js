@@ -14,18 +14,23 @@ export function trimActionPhrase(body, startIndex) {
 export function directAddressActions(body) {
   const actions = [];
   const regex = new RegExp(
-    String.raw`(?:^|[.!?]\s+|,\s*)(${PERSON_NAME_SOURCE})\s*,\s*(?:(?:please\s+(?:also\s+)?)|(?:(?:can|could|would|will)\s+you\s+))?(${REQUEST_VERB_SOURCE})\b`,
+    String.raw`(?:^|[.!?;]\s+|;\s*and\s+|,\s*)(${PERSON_NAME_SOURCE})\s*,\s*(?:(?:please\s+(?:also\s+)?)|(?:(?:can|could|would|will)\s+you\s+))?(${REQUEST_VERB_SOURCE})\b`,
     "giu",
   );
   let match;
   while ((match = regex.exec(body)) !== null) {
     const owner = match[1].trim();
     const verbIndex = match.index + match[0].lastIndexOf(match[2]);
-    const actionText = trimActionPhrase(body, verbIndex);
+    const actionText = trimActionPhrase(body, verbIndex).split(/\s*;\s*/u)[0].trim();
     const groupAddress = /^(?:team|everyone|all|folks|guys)$/iu.test(owner.replace(/^@/, ""));
     const invalidAddress = RESERVED_SPEAKERS.has(owner.toLocaleLowerCase());
     if (actionText && !invalidAddress) actions.push({ text: actionText, owner: groupAddress ? null : owner, classification: groupAddress ? "unassigned_action" : "assigned_task" });
     if (match[0].length === 0) regex.lastIndex += 1;
+  }
+  // "...; and someone call the hotel": an unowned request after named assignments.
+  if (actions.length) {
+    const open = body.match(new RegExp(String.raw`(?:[;,]\s*|\band\s+)(?:someone|somebody|anyone)\s+(?:please\s+)?(?:should\s+|can\s+|could\s+)?(${REQUEST_VERB_SOURCE})\b`, "iu"));
+    if (open) actions.push({ text: trimActionPhrase(body, open.index + open[0].lastIndexOf(open[1])), owner: null, classification: "unassigned_action" });
   }
   return actions;
 }
@@ -89,9 +94,33 @@ export function extractHindiCommitment(body, speaker) {
   return { text: text || value, owner: speaker, classification: "self_commitment", origin: "self_commitment", bare: isBareCommitment(value, match) };
 }
 
+/**
+ * A leading dependency clause does not make the imperative hypothetical:
+ * "Once QA signs off, deploy it." is a real task whose execution is conditional.
+ * Questions and prohibited actions are deliberately excluded.
+ */
+export function extractConditionalImperative(body) {
+  const value = String(body ?? "").trim();
+  if (!value || isJoking(value) || hasHindiNegation(value)) return null;
+  const match = value.match(/^\s*(?<condition>(?:once|after|when|if|unless|until|provided\s+that|subject\s+to)\s+[^,;.!?]+?)\s*,\s*(?<tail>[\s\S]+)$/iu);
+  if (!match?.groups?.condition || !match.groups.tail) return null;
+
+  const actionText = trimActionPhrase(match.groups.tail, 0).replace(/^please\s+/iu, "").trim();
+  if (!actionText || /^(?:do\s+not|don't|don’t|never|no)\b/iu.test(actionText)) return null;
+  if (!new RegExp(String.raw`^(?:${TASK_VERB_SOURCE})\b`, "iu").test(actionText)) return null;
+
+  return {
+    text: actionText,
+    owner: null,
+    classification: "unassigned_action",
+    origin: "conditional_imperative",
+    condition: match.groups.condition.trim(),
+  };
+}
+
 /** "Neha ko bol do presentation complete kare": Neha is the one who must act. */
 export function extractRelayAction(body) {
-  const match = String(body ?? "").match(/(?:^|[.!?]\s+)(?<name>\p{Lu}[\p{L}\p{M}'’.-]*)\s+ko\s+(?:bol\s+do|bolo|bol\s+dena|bolna|keh\s+do|kehna|keh\s+dena)\s+(?:ki\s+)?(?<rest>[^.!?\n]+)/u);
+  const match = String(body ?? "").match(/(?:^|[.!?]\s+)(?:(?:aur|and|also)(?:\s+haan)?[,\s]+)?(?<name>\p{Lu}[\p{L}\p{M}'’.-]*)\s+ko\s+(?:bol\s+do|bolo|bol\s+dena|bolna|keh\s+do|kehna|keh\s+dena)\s+(?:ki\s+)?(?<rest>[^.!?\n]+)/u);
   if (!match) return null;
   const name = match.groups.name;
   const rest = match.groups.rest.trim();
@@ -124,6 +153,13 @@ export function extractOverdueFollowup(body) {
 export function extractSelfCommitment(body, speaker) {
   const matches = [...body.matchAll(new RegExp(COMMITMENT_REGEX.source, "giu"))]
     .filter((match) => !isNegatedAt(body, match.index));
+  if (!matches.length) {
+    // "I'll have it with you on Monday" / "I'll have it ready by Friday": a delivery promise.
+    const have = body.match(/\b(?:i['’]?ll|i\s+will)\s+(?<phrase>have\s+(?:it|them|this|that)\s+(?:with\s+you|ready|done|to\s+you|over\s+to\s+you|sent|finished)\b[^.!?\n]*)/iu);
+    if (have && speaker && !isNegatedAt(body, have.index)) {
+      return { text: have.groups.phrase.trim(), owner: speaker, classification: "self_commitment", origin: "self_commitment" };
+    }
+  }
   if (!matches.length || /^\s*(?:decision:|agreed\s+decision:)/iu.test(body)) return null;
   const first = matches[0];
   const pronoun = first.groups?.pronoun || first[1];

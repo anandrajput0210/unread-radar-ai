@@ -1,126 +1,39 @@
-# Unread Radar AI
+# Unread Radar AI — Milestone D.5 extraction hardening
 
-Unread Radar AI is a privacy-first conversation triage web app built with React, Vite, Tailwind CSS, WebLLM, and Qwen 2.5. It turns pasted conversation text or exported `.txt`/`.log` files into a reviewable summary of candidate tasks, mentions, deadlines/time references, decisions, and urgent messages.
+This is a targeted source overlay for the D.4 project. It contains only the files changed by D.5; it is not a complete application ZIP.
 
-## Features
+## Included changes
 
-- Browser-based local inference through WebLLM and WebGPU; no hosted chat-completion API is required.
-- Hybrid analysis: language-model output is combined with conservative local rules for common task, mention, urgency, and date patterns.
-- Drag-and-drop or local `.txt` / `.log` upload (up to 5 MB per file).
-- Human review workflow for extracted tasks: needs review, confirmed, in progress, completed, or rejected; filter by urgency and review status.
-- Exact source-span navigation: jump from a task candidate to the selected quotation in the original chat input. Linked acknowledgements have separate source evidence and navigation.
-- Markdown executive-brief export includes human review statuses.
-- Explicit addressee parsing for common request forms, conservative owner assignment, same-message deadline signals, and unambiguous acknowledgement linking.
-- Progress/error feedback and testable normalization of model output.
-- Snapshot-local source/message identities, preserved source order, and exact-span reference validation for rule-derived findings.
-- A memory-only cache of up to three recent analysis results. Raw conversations, snapshots, excerpts, and findings are not persisted by the application.
-- A clearly labelled rules-only fallback when WebGPU adapter/device initialization is unavailable.
+- `src/lib/extraction/actions.js` — integrates conditional tasks and conservative complaint/repair linkage.
+- `src/lib/extraction/candidates.js` — recognizes conditional imperative requests.
+- `src/lib/extraction/conditions.js` — resolves a condition using the QA speaker label while retaining exact message evidence.
+- `src/lib/extraction/implied.js` — recognizes a narrow complaint-implied remediation candidate.
+- `src/lib/extraction/lifecycle.js` — links a unique, recent progress update to an eligible conditional task using the shared claim policy.
+- `tests/unit/knownGaps.test.js` — replaces the four D.4 TODOs with active positive and negative regressions.
+- `benchmark/data/dev/hinglish.chat` — corrects the ambiguous shared-owner annotation for “Amit tum dono dekh lo” to no single owner.
+- `docs/milestone-d5-extraction-decisions.md` — records the product decisions and safety boundaries.
 
-## Tech stack
+## Apply
 
-- React 18, Vite 6, JavaScript
-- Tailwind CSS 4, Lucide React
-- `@mlc-ai/web-llm` with `Qwen2.5-0.5B-Instruct-q4f16_1-MLC`
-- Node.js built-in test runner (`node --test`)
-
-## Run locally
-
-Requirements: a recent Node.js release and a current Chrome/Edge browser with WebGPU available. The first model initialization downloads model assets, so it requires network access; later use may benefit from browser caching.
-
-```bash
-npm ci
-npm run dev
-```
-
-Open the local URL printed by Vite (commonly `http://localhost:5173`). To verify the project:
+1. Back up or commit your current working tree first.
+2. Extract this ZIP into the repository root, preserving folders, and allow replacement of matching files.
+3. Run:
 
 ```bash
 npm test
+npm run bench
+npm run bench:inventory
 npm run build
-npm run preview
 ```
 
-## Project structure
+Do not include or replace the private blind holdout. The D.5 checks use the development split only.
 
-```
-src/
-  App.jsx                 Page layout and state orchestration
-  components/             UI building blocks (TaskCard, PriorityItem, ImportReview, ui/*)
-  lib/
-    import/               Chat-export parsing and immutable source snapshots
-    extraction/           Deterministic extraction engine (tasks, dates, Hinglish, lifecycle, conditions)
-    ai/                   WebLLM engine, model-output schema, result cache
-    validation/           Exact-quote evidence references
-    views/                Priority view, review workflow, source-grounded summary
-    export/               Markdown brief and clipboard summary builders (pure functions)
-    ui/                   Small formatting helpers shared by components
-tests/
-  unit/  integration/  benchmark/  fixtures/
-docs/                     Architecture, parser, lifecycle, benchmark and deployment notes
-examples/                 Demo chat for manual testing
-```
+## Verification from the assembled review copy
 
-See [docs/architecture.md](./docs/architecture.md) for the data flow and for where to add new behaviour.
+- Tests: 247 total; 246 passed, 0 failed, 1 skipped (the holdout test), 0 TODO.
+- Development benchmark: strict precision 100%, strict recall 95.2%, owner accuracy 100%, deadline 100%, lifecycle 100%, evidence 100%, duplicates 0%, wrong-owner assignments 0. Lenient recall 100%.
+- Benchmark inventory: no remaining rows.
 
-## Documentation
+These are tuned development-set results, not independent real-world accuracy estimates.
 
-| Topic | File |
-|---|---|
-| Architecture and module map | [docs/architecture.md](./docs/architecture.md) |
-| WhatsApp formats, Hinglish and date handling | [docs/parser-compatibility.md](./docs/parser-compatibility.md) |
-| Task lifecycle states | [docs/task-lifecycle.md](./docs/task-lifecycle.md) |
-| Cross-speaker condition states | [docs/condition-state.md](./docs/condition-state.md) |
-| Local AI pipeline | [docs/local-ai.md](./docs/local-ai.md) |
-| Benchmark method and limits | [docs/benchmark.md](./docs/benchmark.md) |
-| Synthetic-chat accuracy report | [docs/accuracy-report.md](./docs/accuracy-report.md) |
-| Browser validation and manual tests | [docs/browser-validation.md](./docs/browser-validation.md) |
-| Deployment | [docs/deployment.md](./docs/deployment.md) |
-| Build changelog | [docs/changelog.md](./docs/changelog.md) |
-
-## Production deployment
-
-This is a static Vite frontend. The current application does not require an application backend, database, hosted model endpoint, or API key. Use the repository root as the project root, install with `npm ci`, build with `npm run build`, and serve the generated `dist/` directory. Do not add a placeholder backend or replace browser-local inference with a hosted provider as part of deployment.
-
-The Vite development and preview servers and the included Vercel configuration set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Preserve these settings where the hosting platform allows them. The Emergent-hosted HTTPS preview must still be tested directly: a successful build does not prove that the hosted browser can initialize WebLLM or complete Qwen inference. See [docs/deployment.md](./docs/deployment.md) for the release gate.
-
-## Privacy and limitations
-
-Conversation processing runs in the browser. The app does not send pasted chat text to a hosted chat-completion API. Raw conversation text, source snapshots, evidence excerpts, findings, and summaries remain memory-only by default; up to three results may be held in an in-memory cache until cleared or the page is closed. On startup, the app attempts to remove only its legacy `unread-radar-ai:analysis-results:v2` session-storage entry and reports a cleanup failure; unrelated browser storage is not deleted. Downloaded WebLLM model assets are managed separately by the browser and are not deleted by clearing conversation data. User-triggered Markdown downloads and clipboard copies are deliberate exports and are outside the app's in-memory retention boundary. Use only conversations you are authorized to process and review extracted findings before acting on them.
-
-When recognizable speaker/message headers are absent, an import is represented as one opaque source message. Author and timestamp remain unknown, so message-level granularity is reduced. Exact quotation and message-reference validation establish source-reference integrity only; they do not prove that a task, owner, decision, or urgency interpretation is semantically correct. Such interpretations remain unverified for human review.
-
-WebGPU support and performance vary by browser and hardware. A production build passing does not guarantee that model inference will work on every device. Model outputs and rule-based extractions may be incomplete or mistaken; verify tasks, owners, urgency, and time references against the original chat. Relative dates such as “today” are not converted into calendar dates unless the source provides enough context.
-
-## Project links
-
-- GitHub: https://github.com/anandrajput0210/unread-radar-ai
-- Existing Vercel fallback: https://unread-radar-ai-six.vercel.app/
-
-## Suggested manual QA
-
-1. Analyze a short chat with one explicit task, one direct `@mention`, and one deadline. The six-message regression fixture is covered by the test suite: it should resolve Maria and Mike as owners, keep the generic feature-request request unassigned, and link Mike’s acknowledgement to his one matching task.
-2. Include a decision and a negated statement such as “we do not need to redesign this today”; it should not become a task or false deadline.
-3. Re-analyze the exact same input before clearing it; the in-memory cache may reuse the result. Reloading or clearing the source discards conversation-derived results.
-4. Use `Show original in chat` to inspect each exact quotation; a matching quotation alone does not prove the model interpreted it correctly.
-5. Change the task review status, filter by that status, and confirm the exported Markdown report reflects the chosen statuses.
-
-## Priority counting and inference transparency
-
-The priority view is task-first: each action candidate is counted once. Deadline, urgency, and mention findings from the same recognized source message are attached as supporting context instead of inflating the priority total. Findings without a defensible source-message identity remain standalone signals; the app does not guess a relationship.
-
-The UI and exported brief distinguish a completed browser-local WebLLM inference run from rules-only analysis. A Qwen completion record is created only after every segment returns valid structured output. The catch-up summary itself remains deterministic and source-grounded.
-
-The project includes 20 synthetic parser regression fixtures. They validate selected behaviours but do not establish real-world accuracy. See [docs/benchmark.md](./docs/benchmark.md) for limitations and a human-labelled evaluation procedure.
-
-## Accuracy safeguards and cross-message context
-
-The local parser recognises named assignments, first-person commitments (for example, `I'll inspect` or `I can own`), unassigned group requests, and selected follow-up details. It can attach a reply or acknowledgement to a prior task only where the speaker/task relationship is unambiguous. Conditional language such as `once the client responds` is preserved as a condition rather than silently converted into a date.
-
-The app treats deterministic task candidates as authoritative. A model-only suggestion is permitted only when its quoted evidence is a unique exact substring of the source. Such suggestions do not inherit a model-suggested owner, urgency, confidence value, or calendar date. They remain clearly marked for review. Deadline extraction excludes explicit meeting-time statements such as `the review is scheduled for 5 PM` and separates explicit deadlines from contextual timing. These are conservative rules, not a guarantee of general semantic understanding.
-
-Task cards display exact primary evidence, linked acknowledgements, and related conversation context with separate source navigation. Conditions are shown in the Action Items and Priority views and included in the Markdown brief.
-
-
-## Cross-speaker condition states
-
-Prerequisites can be resolved from later messages by Legal, Compliance, QA, or other participants. Explicit revocation/correction supersedes an earlier approval; unresolved contradictions remain ambiguous. Both current and superseded statements remain linked to exact source messages. See `docs/condition-state.md`.
+The production build could not be reproduced in the Linux review environment because the ZIP's `node_modules` contains Windows Rollup binaries and lacks `@rollup/rollup-linux-x64-gnu`. Run `npm run build` in the Windows project after applying these files; do not treat the Linux dependency error as a source-code build failure.

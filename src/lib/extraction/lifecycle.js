@@ -3,7 +3,18 @@ import { DEADLINE_WORDS, DELAY_CUE, TASK_VERB_SOURCE, PRONOUN_OBJECTS, RESERVED_
 import { resolveDeadlineDate } from "./dates.js";
 import { addSupportingDetail, matchesAcknowledgement, ownerMatchesSpeaker, relationScore, relationTokens } from "./matching.js";
 import { recordMeta } from "./records.js";
+import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
 import { isNegatedAt, sourceSpan } from "./text.js";
+
+// Words that never name a deliverable ("will send it on Thursday instead").
+const FILLER_TOKENS = new Set(["instead", "again", "now", "then", "also", "just", "still", "later", "soon", "sometime", "once", "ahead"]);
+// send/share/mail/... are the same act for matching a status update to its task.
+const VERB_FAMILIES = [["send", "share", "mail", "email", "forward", "submit", "deliver", "have", "bhej", "bhejna"], ["prepare", "draft", "write", "create", "make", "build", "finalize", "finalise", "complete", "finish"]];
+export function sameVerbFamily(verb, text) {
+  const v = String(verb).toLocaleLowerCase();
+  const family = VERB_FAMILIES.find((group) => group.includes(v)) || [v];
+  return family.some((member) => new RegExp(`\\b${escapeRegex(member)}\\b`, "iu").test(text));
+}
 
 export function lifecycleEventType(body) {
   const value = String(body ?? "").trim();
@@ -23,7 +34,7 @@ export function lifecycleEventType(body) {
     || /\b[\p{L}\p{N}][\p{L}\p{N}'’_-]{1,}\s+(?:sent|shared|submitted|uploaded|fixed|resolved|booked|delivered|completed|finished|approved)\b/iu.test(value)
     || /\b(?:ho\s+gaya|bhej\s+diya|send\s+kar\s+diya|share\s+kar\s+diya|submit\s+kar\s+diya|complete\s+kar\s+diya|kar\s+diya)\b/iu.test(value)) return "completed";
   if (/\b(?:delay(?:ed)?|postpon(?:e|ed)|pushing\s+(?:it\s+)?to|moving\s+(?:it\s+)?to|running\s+late|need\s+until|need\s+more\s+time|not\s+ready|can't\s+make\s+it|cannot\s+make\s+it|kal\s+tak\s+possible\s+nahi)\b/iu.test(value)) return "delayed";
-  if (/\b(?:working\s+on|started\s+(?:working\s+on|it)|in\s+progress|currently\s+handling|taking\s+care\s+of|looking\s+into|kaam\s+kar\s+raha|kaam\s+chal\s+raha)\b/iu.test(value)) return "in-progress";
+  if (/\b(?:working\s+on|(?:deploying|fixing|updating|sending|uploading|reviewing|checking|preparing|drafting|finali[sz]ing|processing)(?:\s+(?:it|this|that))?\s+now|started\s+(?:working\s+on|it)|in\s+progress|currently\s+handling|taking\s+care\s+of|looking\s+into|kaam\s+kar\s+raha|kaam\s+chal\s+raha)\b/iu.test(value)) return "in-progress";
   return null;
 }
 
@@ -55,7 +66,7 @@ export function extractLifecycleDuePhrase(body) {
   return relative?.[1] || null;
 }
 
-export function chooseLifecycleTarget(actions, record, body, speaker, eventType, options) {
+export function chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records = []) {
   const available = actions.filter((action) => action.sourceSpan.startOffset < record.startOffset
     && !["completed", "cancelled"].includes(action.lifecycleStatus));
   const scored = available.map((action) => ({ action, score: relationScore(action.text, body) }))
@@ -64,6 +75,17 @@ export function chooseLifecycleTarget(actions, record, body, speaker, eventType,
   if (scored.length) {
     if (scored.length > 1 && scored[0].score - scored[1].score < 0.12) return null;
     return scored[0].action;
+  }
+
+  // A progress verb can identify a request even when the update omits its object:
+  // "deploy it" -> "Deploying now". This remains a claim, so require a recent,
+  // identifiable requester who is different from the responder and one verb match.
+  if (eventType === "in-progress" && speaker) {
+    const claimable = actions.filter((action) => !action.collective
+      && isEligibleUnownedClaim(records, action, record, speaker, options)
+      && sharesWordStem(action.text, body));
+    if (claimable.length === 1) return claimable[0];
+    if (claimable.length > 1) return null;
   }
 
   // A bare acknowledgement/completion is safe only when one open task belongs
@@ -78,9 +100,17 @@ export function chooseLifecycleTarget(actions, record, body, speaker, eventType,
   // ("Invoice bhej diya hai" -> their one open invoice task).
   if (["completed", "in-progress", "delayed"].includes(eventType) && speaker) {
     const owned = available.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, speaker));
-    if (owned.length === 1 && relationScore(owned[0].text, body) > 0) return owned[0];
+    if (owned.length === 1 && (relationScore(owned[0].text, body) > 0 || sharesWordStem(owned[0].text, body))) return owned[0];
   }
   return null;
+}
+
+// "Deploying now" vs "deploy the hotfix": same word once -ing/-ed/-e/-s are removed (min. 4 letters).
+const wordStem = (w) => w.toLocaleLowerCase().replace(/(?:ing|ed|es|e|s)$/u, "");
+function sharesWordStem(a, b) {
+  const stems = (t) => new Set(String(t).match(/\p{L}{4,}/gu)?.map(wordStem).filter((w) => w.length >= 4) ?? []);
+  const right = stems(b);
+  return [...stems(a)].some((w) => right.has(w));
 }
 
 export function statusForEvent(type, action) {
@@ -160,7 +190,7 @@ export function applyTaskLifecycle(actions, records, options = {}) {
       const duePhrase = commitment?.owner ? extractLifecycleDuePhrase(body) : null;
       if (duePhrase) {
         const verb = commitment.text.trim().split(/\s+/u)[0]?.toLocaleLowerCase();
-        const deliverable = [...relationTokens(commitment.text)].filter((token) => !DEADLINE_WORDS.has(token) && !PRONOUN_OBJECTS.has(token));
+        const deliverable = [...relationTokens(commitment.text)].filter((token) => !DEADLINE_WORDS.has(token) && !PRONOUN_OBJECTS.has(token) && !FILLER_TOKENS.has(token));
         const ownedOpen = actions.filter((action) => action !== orphan
           && action.sourceSpan.startOffset < record.startOffset
           && ownerMatchesSpeaker(action.owner, speaker)
@@ -173,7 +203,7 @@ export function applyTaskLifecycle(actions, records, options = {}) {
               const tokens = relationTokens(action.text);
               return deliverable.some((token) => tokens.has(token));
             })
-          : (ownedOpen.length === 1 && verb && new RegExp(`\\b${escapeRegex(verb)}\\b`, "iu").test(ownedOpen[0].text) ? ownedOpen : []);
+          : (ownedOpen.length === 1 && verb && sameVerbFamily(verb, ownedOpen[0].text) ? ownedOpen : []);
         if (candidates.length === 1) {
           const [target] = candidates;
           const event = {
@@ -197,7 +227,7 @@ export function applyTaskLifecycle(actions, records, options = {}) {
 
     const eventType = lifecycleEventType(body);
     if (!eventType) continue;
-    let target = chooseLifecycleTarget(actions, record, body, speaker, eventType, options);
+    let target = chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records);
     if (!target && eventType === "reassigned") {
       // "Banner ka kaam ab Rohan karega, Neha ko ye nahi karna": the previous
       // owner is named, so use them to find the task, but only if it is unique
@@ -249,6 +279,24 @@ export function applyTaskLifecycle(actions, records, options = {}) {
       }
       target.lifecycleStatus = "delayed";
     } else {
+      // "Working on the numbers now" answering an unowned request: whoever is doing it owns it.
+      if (eventType === "in-progress" && !target.owner && speaker && !target.collective) {
+        // A progress message is also an ownership claim. Apply the same guard as
+        // acknowledgements and commitments: recent request, identifiable other
+        // requester, and exactly one content-matching eligible request.
+        const claimCandidates = actions.filter((action) => !action.collective
+          && isEligibleUnownedClaim(records, action, record, speaker, options)
+          && (relationScore(action.text, body) >= CLAIM_CONTENT_THRESHOLD || sharesWordStem(action.text, body)));
+        if (claimCandidates.length === 1 && claimCandidates[0] === target) {
+          target.owner = speaker;
+          target.classification = "assigned_task";
+          target.ownerSource = "claimed_by_progress";
+          if (target.outcome === "possible" && !target.model) {
+            target.outcome = "confirmed";
+            target.outcomeReason = null;
+          }
+        }
+      }
       target.lifecycleStatus = statusForEvent(eventType, target);
       if (eventType === "completed") target.completed = true;
       if (eventType === "cancelled") {
