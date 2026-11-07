@@ -138,7 +138,7 @@ export const PERSON_NAME_SOURCE = String.raw`@?[\p{L}][\p{L}\p{M}'’.-]*(?:\s+[
 
 export const NON_NAME_WORDS = new Set(["bhai", "bhaiya", "yaar", "bro", "sir", "madam", "didi", "ji", "ok", "okay", "hello", "hi", "hey", "team", "everyone", "please", "plz", "haan", "nahi", "abhi", "kal", "aaj", "client", "boss"]);
 
-export const RELAY_ACTION_HINT = /\b(?:kare|karein|kar\s+(?:de|dena|do|le|lena|dein)|karna|karo|bheje|bhejo|bhej\s+(?:de|dena|do)|bhejna|de\s+(?:de|dena|do)|complete|send|share|submit|finish|update|call|check|prepare|finali[sz]e)\b/iu;
+export const RELAY_ACTION_HINT = /\b(?:(?:le|lekar|le\s+kar)\s+(?:aaye|aaye\.|aaya\s+kare|aao|aana|aaiye)|le\s+aana|laye|laaye|laana|kare|karein|kar\s+(?:de|dena|do|le|lena|dein)|karna|karo|bheje|bhejo|bhej\s+(?:de|dena|do)|bhejna|de\s+(?:de|dena|do)|complete|send|share|submit|finish|update|call|check|prepare|finali[sz]e)\b/iu;
 
 export const RELATION_STOP_WORDS = new Set([
   "the", "a", "an", "to", "in", "on", "at", "by", "before", "after", "for", "with", "from", "and", "or", "but", "that", "this", "it", "we", "i", "ill", "i'll", "can", "will", "shall", "please", "you", "my", "your", "our", "their", "his", "her", "me", "us", "them", "as", "is", "are", "was", "were", "be", "been", "being", "of", "into", "over", "under", "up", "down", "once", "when", "if", "until", "unless", "after", "got", "sure", "yes", "okay", "ok", "understood", "thanks", "thank", "i", "ll", "by", "pm", "am", "today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "morning", "afternoon", "evening", "noon", "update", "task", "item", "client", "customer",

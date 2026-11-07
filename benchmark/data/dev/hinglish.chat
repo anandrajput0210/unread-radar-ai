@@ -8,7 +8,7 @@
 
 @chat id=hi-implied split=dev cats=hinglish,implied start=03/11/2026
 12:00 Neha: logo ka final version chahiye by Friday => t1 owner=- due=2026-11-06
-12:03 Rohit: ho jayega, Thursday tak bhej dunga => t1 owner=Rohit due=2026-11-05
+12:03 Rohit: ho jayega, Thursday tak bhej dunga => t1 owner=Rohit due=2026-11-06
 12:10 Neha: aur pricing sheet bhi bhej do pls => t2 owner=- due=-
 12:11 Rohit: ok
 12:30 Neha: invoice ka payment pending hai, please check karke batao => t3 owner=- due=-
@@ -23,7 +23,7 @@
 09:31 Amit: kal tak sab ho jayega haha just joking 😂
 
 @chat id=hi-longform split=dev cats=hinglish,ambiguous-owner start=04/11/2026
-13:00 Rahul: dekh bhai, client ka call aaya tha, unko revised quote chahiye aur delivery timeline bhi, Amit tum dono dekh lo please, kal subah tak bhej dena => t1 owner=Amit due=2026-11-05
+13:00 Rahul: dekh bhai, client ka call aaya tha, unko revised quote chahiye aur delivery timeline bhi, Amit tum dono dekh lo please, kal subah tak bhej dena => t1 owner=- due=2026-11-05
 13:05 Amit: ok bhai
 13:10 Rahul: aur haan, Sunday ko team lunch hai
 

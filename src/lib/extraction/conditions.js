@@ -2,7 +2,10 @@ import { TASK_VERB_SOURCE } from "./constants.js";
 import { recordMeta } from "./records.js";
 
 export function conditionFor(body) {
-  const match = String(body ?? "").match(/\b(?:once|after|when|if|until|unless|provided\s+that|subject\s+to)\s+(?:we\s+get\s+)?(?:the\s+)?(?:client|customer|legal|qa|approval|reply|response|wording|sign[- ]?off)[^.!?]*/iu);
+  const value = String(body ?? "");
+  const leading = value.match(/^\s*((?:once|after|when|if|until|unless|provided\s+that|subject\s+to)\s+[^,;.!?]+?)\s*,/iu);
+  if (leading) return leading[1].trim();
+  const match = value.match(/\b(?:once|after|when|if|until|unless|provided\s+that|subject\s+to)\s+(?:we\s+get\s+)?(?:the\s+)?(?:client|customer|legal|qa|approval|reply|response|wording|sign[- ]?off)[^.!?]*/iu);
   return match ? match[0].trim().replace(/[.!?]+$/u, "") : null;
 }
 
@@ -79,10 +82,12 @@ export function resolveConditionAcrossConversation(records, precondition) {
   const evidence = records
     .filter((record) => record.startOffset > precondition.record.startOffset)
     .map((record) => {
-      const body = recordMeta(record).body;
+      const meta = recordMeta(record);
+      const body = meta.body;
+      const attributedBody = meta.speaker ? `${meta.speaker} ${body}` : body;
       return {
         record,
-        status: conditionEvidenceStatus(body, precondition.condition),
+        status: conditionEvidenceStatus(attributedBody, precondition.condition),
         body,
         explicitOverride: hasExplicitConditionOverride(body),
       };

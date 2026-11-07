@@ -11,6 +11,7 @@
     "bench": "node benchmark/score.mjs dev",
     "bench:verbose": "node benchmark/score.mjs dev --verbose",
     "bench:holdout": "node benchmark/score.mjs holdout",
+    "bench:inventory": "node benchmark/inventory.mjs --md",
     "bench:save": "node benchmark/score.mjs --save"
   },
   "dependencies": {

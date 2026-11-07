@@ -1,14 +1,18 @@
-import { directAddressActions, extractBulletAssignments, extractHindiAssignment, extractHindiCommitment, extractHinglishAction, extractOverdueFollowup, extractRelayAction, extractSelfCommitment, hasActionDirective, inferAssignee, taskClassificationFor } from "./candidates.js";
+import { directAddressActions, extractBulletAssignments, extractConditionalImperative, extractHindiAssignment, extractHindiCommitment, extractHinglishAction, extractOverdueFollowup, extractRelayAction, extractSelfCommitment, hasActionDirective, inferAssignee, taskClassificationFor } from "./candidates.js";
 import { conditionFor, extractBlockedPrecondition, resolveConditionAcrossConversation } from "./conditions.js";
 import { ACTION_LABEL_REGEX, IMPERATIVE_REGEX, REQUEST_REGEX, TASK_VERB_SOURCE } from "./constants.js";
 import { extractImpliedRequest } from "./implied.js";
 import { extractCollective } from "./collective.js";
+import { sameVerbFamily } from "./lifecycle.js";
+import { DEADLINE_WORDS, PRONOUN_OBJECTS } from "./constants.js";
+import { relationTokens } from "./matching.js";
 import { resolveDeadlineDate } from "./dates.js";
 import { applyTaskLifecycle } from "./lifecycle.js";
 import { addSupportingDetail, findUniqueOwnedAction, findUniquePriorAction, matchesAcknowledgement, ownerMatchesSpeaker, relationScore } from "./matching.js";
 import { conversationMessageRecords, parseChatRecord, recordMeta, resolveParseOptions } from "./records.js";
 import { sourceSpan, uniqueBy, urgencyFor } from "./text.js";
 import { dueDateStatusForAction, extractDueSignal } from "./timing.js";
+import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
 
 export function extractNamedFollowupTarget(body) {
   const match = String(body ?? "").match(/\b(?:thanks|thank\s+you)\s+(@?\p{L}[\p{L}\p{M}'’'-]*)/iu);
@@ -66,6 +70,10 @@ export function extractActions(text, options = {}) {
     let candidates = extractBulletAssignments(body);
     if (!candidates.length) candidates = directAddressActions(body);
     if (!candidates.length) {
+      const conditional = extractConditionalImperative(body);
+      if (conditional) candidates = [conditional];
+    }
+    if (!candidates.length) {
       const collective = extractCollective(body);
       if (collective?.skip) continue;
       if (collective?.candidate) candidates = [collective.candidate];
@@ -99,6 +107,23 @@ export function extractActions(text, options = {}) {
     if (!candidates.length) {
       const selfCommitment = extractSelfCommitment(body, speaker);
       if (selfCommitment) candidates = [selfCommitment];
+    }
+
+    // "Sorry about that, resending now" is only linked when there is exactly
+    // one recent, identifiable complaint from another participant. Without
+    // that context, the fragment is not promoted into a task or owner claim.
+    if (!candidates.length && speaker && isComplaintRepairResponse(body)) {
+      const complaints = actions.filter((earlier) => earlier.origin === "implied_complaint"
+        && isEligibleUnownedClaim(records, earlier, record, speaker, options));
+      if (complaints.length === 1) {
+        candidates = [{
+          text: complaints[0].text,
+          owner: speaker,
+          classification: "self_commitment",
+          origin: "self_commitment",
+          complaintFollowup: true,
+        }];
+      }
     }
 
     if (!candidates.length) {
@@ -136,11 +161,11 @@ export function extractActions(text, options = {}) {
     candidates = candidates.flatMap(splitCompoundRequest);
 
     const messageDue = extractDueSignal(body, { allowCommitmentTiming: true });
-    const condition = conditionFor(body);
 
     candidates.forEach((candidate, index) => {
       const candidateText = candidate.text.trim();
       if (!candidateText) return;
+      const condition = candidate.condition || conditionFor(body);
       // "Banner ka kaam ab Rohan karega" about work that already has a task is a
       // reassignment, which the lifecycle step handles; it is not a second task.
       if (candidate.origin === "hinglish_assignment" && actions.some((earlier) => relationScore(earlier.text, candidateText) >= 0.28)) return;
@@ -155,6 +180,7 @@ export function extractActions(text, options = {}) {
         messageDate: messageMeta.timestamp?.date || null,
         owner: candidate.owner || null,
         classification: taskClassificationFor(body, candidate),
+        origin: candidate.origin || null,
         dueDate,
         resolvedDueDate: dueDate ? resolveDeadlineDate(dueDate, messageMeta.timestamp?.date || null, options) : null,
         dueDateStatus: dueDate ? dueDateStatusForAction(candidateText, dueDate, body) : null,
@@ -167,6 +193,19 @@ export function extractActions(text, options = {}) {
         completed: false,
         sourceSpan: sourceSpan(record),
       };
+
+      if (condition) {
+        const conditionResolution = resolveConditionAcrossConversation(records, { condition, record, body });
+        action.conditionStatus = conditionResolution.status;
+        for (const resolution of conditionResolution.evidence) {
+          const isSuperseded = conditionResolution.status !== "ambiguous"
+            && resolution.status !== conditionResolution.status;
+          const evidenceKind = isSuperseded
+            ? `condition-resolution:superseded:${resolution.status}`
+            : `condition-resolution:${resolution.status}`;
+          addSupportingDetail(action, resolution.record, resolution.body, evidenceKind);
+        }
+      }
 
       // Carry a previously blocked condition forward only when the same
       // speaker later commits to the same action and the relationship is unique.
@@ -200,6 +239,15 @@ export function extractActions(text, options = {}) {
         : null;
       // "kar dunga" names no deliverable, so it can only refer to the speaker's single earlier task.
       if (!previous && candidate.bare && action.owner) previous = findUniqueOwnedAction(actions, action.owner, record);
+      // "Sure, I'll send it by Thursday" answering an unowned request claims it. Claim only when
+      // exactly one unowned task qualifies (by content, or by "it" with a compatible verb) and
+      // it was raised by someone else within the last few messages; otherwise stay unowned.
+      // A contentless commitment, or one matching the speaker's own open task, stays ambiguous.
+      if (!previous && candidate.origin === "self_commitment" && action.owner
+        && !speakerHasConflictingOpenOwnedTask(actions, records, record, speaker, options, action.text)) {
+        previous = findClaimableRequest(actions, action, record, records, speaker, options, { bare: Boolean(candidate.bare) });
+        if (previous) { previous.owner = action.owner; previous.classification = "assigned_task"; previous.ownerSource = "claimed_by_commitment"; confirmByAcceptance(previous); }
+      }
       if (previous) {
         const isAcknowledgement = /^(?:got\s+it|understood|yes|sure|okay|ok|noted|thanks|thank\s+you)\b/iu.test(body);
         if (isAcknowledgement || candidate.origin === "self_commitment") {
@@ -237,23 +285,37 @@ export function extractActions(text, options = {}) {
     });
   }
 
+  // A bare "Sure."/"Yes." is only a commitment when it can only be addressed to one other person.
+  // (A bare "ok" stays a read-receipt, never an acceptance.)
+  const BARE_AFFIRMATION = /^\s*(?:sure|yes|yep|yeah|absolutely|of\s+course|haan|ji)\s*[.!]*\s*$/iu;
+  const twoPersonChat = new Set(records.map((r) => recordMeta(r, options).speaker).filter(Boolean).map((v) => v.toLocaleLowerCase())).size === 2;
+
   // Link short acknowledgements that do not contain a repeated task phrase.
   for (const record of records) {
     const { speaker, body } = recordMeta(record, options);
-    if (!speaker || !matchesAcknowledgement(body)) continue;
-    let possibleMatches = actions.filter((action) =>
-      action.sourceSpan.startOffset < record.startOffset && ownerMatchesSpeaker(action.owner, speaker)
-    );
+    if (!speaker || !(matchesAcknowledgement(body) || (twoPersonChat && BARE_AFFIRMATION.test(body)))) continue;
+    // An acknowledgement that directly follows an unowned request from someone else answers THAT
+    // request, even if the speaker already owns an older task.
+    const justAsked = actions.filter((action) =>
+      isEligibleUnownedClaim(records, action, record, speaker, options));
+    let possibleMatches = justAsked.length === 1
+      ? (Object.assign(justAsked[0], { owner: speaker, classification: "assigned_task", ownerSource: "unique_acknowledgement" }), confirmByAcceptance(justAsked[0]), justAsked)
+      : actions.filter((action) =>
+        action.sourceSpan.startOffset < record.startOffset && ownerMatchesSpeaker(action.owner, speaker)
+      );
     if (possibleMatches.length === 0) {
       // A unique preceding unassigned request can acquire an owner when a
       // participant explicitly acknowledges it. Ambiguous cases stay unassigned.
+      // Only RECENT requests (last 3 messages) from an identifiable, different person qualify:
+      // an acknowledgement far from the request, or from an unknown requester, proves nothing.
       const unassigned = actions.filter((action) =>
-        action.sourceSpan.startOffset < record.startOffset && !action.owner && !action.acknowledgedBy
+        isEligibleUnownedClaim(records, action, record, speaker, options)
       );
       if (unassigned.length === 1) {
         unassigned[0].owner = speaker;
         unassigned[0].classification = "assigned_task";
         unassigned[0].ownerSource = "unique_acknowledgement";
+        confirmByAcceptance(unassigned[0]);
         possibleMatches = unassigned;
       }
     }
@@ -273,6 +335,10 @@ export function extractActions(text, options = {}) {
   };
 }
 
+function isComplaintRepairResponse(body) {
+  return /^\s*(?:sorry(?:\s+about\s+that)?[,:;\s]+)?(?:i['’]?m\s+)?(?:re[- ]?sending|resending|sending\s+(?:it|them)\s+again)\s+(?:now|today)?[.!]*\s*$/iu.test(String(body ?? ""));
+}
+
 // "send the invoice and update the tracker by Friday" is two tasks. Split only when
 // both halves have their own object, so "review and approve the doc" stays one task.
 const COMPOUND = new RegExp(String.raw`^(?<first>(?:please\s+)?(?:${TASK_VERB_SOURCE})\s+\S+(?:\s+\S+)*?)\s+and\s+(?:also\s+)?(?<second>(?:${TASK_VERB_SOURCE})\s+\S+(?:\s+\S+)*)$`, "iu");
@@ -287,7 +353,50 @@ function splitCompoundRequest(candidate) {
 function dueWithinOwnSentence(body, candidateText, messageDue) {
   const sentences = String(body).split(/(?<=[.!?;])\s+/u);
   if (sentences.length < 2) return messageDue;
-  const key = candidateText.toLocaleLowerCase().slice(0, 18);
+  const key = candidateText.toLocaleLowerCase().split(/[;.!?]/u)[0].slice(0, 18);
   const own = sentences.find((sentence) => sentence.toLocaleLowerCase().includes(key));
   return own ? extractDueSignal(own, { allowCommitmentTiming: true }) : messageDue;
+}
+
+const NO_DELIVERABLE = new Set(["evening", "morning", "afternoon", "instead", "night", "ho", "jayega", "jaega", "bhej", "bhejna", "dunga", "dungi", "kar", "karna", "deta", "deti", "karunga", "karungi", "denge", "hu", "hoon", "with", "you", "ready", "done", "have", "ma'am", "sir"]);
+
+function findClaimableRequest(actions, action, record, records, speaker, options, { bare = false } = {}) {
+  const open = actions.filter((earlier) => isEligibleUnownedClaim(records, earlier, record, speaker, options));
+  const byContent = open.filter((earlier) => relationScore(earlier.text, action.text) >= CLAIM_CONTENT_THRESHOLD);
+  if (byContent.length === 1) return byContent[0];
+  if (byContent.length > 1) return null;
+  // The commitment names no deliverable of its own ("it", times of day, bare Hinglish verbs).
+  const pronounOnly = [...relationTokens(action.text)].every((t) => PRONOUN_OBJECTS.has(t) || DEADLINE_WORDS.has(t) || NO_DELIVERABLE.has(t) || action.text.toLocaleLowerCase().split(/\s+/u)[0] === t);
+  if ((!pronounOnly && !bare) || open.length !== 1) return null;
+  if (bare) return open[0];
+  const verb = action.text.trim().split(/\s+/u)[0];
+  return /\b(?:need|chahiye)\b/iu.test(open[0].sourceText) || sameVerbFamily(verb, open[0].text) ? open[0] : null;
+}
+// The requester must be identifiable AND different from the respondent; unknown is not "different".
+// A vague "we need X" becomes a confirmed task once someone explicitly accepts it.
+function confirmByAcceptance(task) {
+  if (task.outcome === "possible" && !task.model) { task.outcome = "confirmed"; task.outcomeReason = null; task.acceptedBy = task.owner; }
+}
+
+// A speaker with an OPEN task of their own makes "I'll send it" ambiguous, so claims are skipped.
+// A task they already finished or that was cancelled does not: the lifecycle state as of THIS
+// message is computed on a throw-away copy, because the real lifecycle pass runs after extraction.
+function speakerHasConflictingOpenOwnedTask(actions, records, record, speaker, options, candidateText = "") {
+  // Replay ALL prior tasks, not only those initially owned by this speaker.
+  // A task may have been reassigned to or away from them earlier in the chat.
+  const prior = actions.filter((earlier) => earlier.sourceSpan.startOffset < record.startOffset);
+  if (!prior.length) return false;
+  const snapshot = prior.map((earlier) => ({
+    ...earlier,
+    lifecycleEvents: [],
+    supportingDetails: [...(earlier.supportingDetails || [])],
+  }));
+  const before = records.filter((r) => r.startOffset < record.startOffset);
+  applyTaskLifecycle(snapshot, before, options);
+  const contentTokens = relationTokens(candidateText);
+  return snapshot.some((earlier) => ownerMatchesSpeaker(earlier.owner, speaker)
+    && !["completed", "cancelled"].includes(earlier.lifecycleStatus)
+    // A contentless promise is ambiguous with any existing open owned task.
+    // A contentful commitment is blocked only by an owned task for the same work.
+    && (!contentTokens.size || relationScore(earlier.text, candidateText) >= CLAIM_CONTENT_THRESHOLD));
 }
