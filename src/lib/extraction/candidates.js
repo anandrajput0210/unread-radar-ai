@@ -11,6 +11,15 @@ export function trimActionPhrase(body, startIndex) {
     .trim();
 }
 
+// "Once it's done, ping me" / "After lunch, send the file": a time or condition clause
+// before the comma is not a person. Names are short and never contain function words.
+const CLAUSE_WORDS = new Set(["once", "when", "whenever", "after", "before", "if", "until", "unless", "while", "since", "because", "as", "by", "at", "in", "on", "during", "later", "then", "now", "today", "tomorrow", "tonight", "tmrw", "next", "it", "it's", "its", "its", "you", "you're", "youre", "we", "we're", "i", "i'm", "they", "that", "this", "the", "a", "an", "is", "are", "was", "done", "free", "ready", "lunch", "work", "back", "home", "morning", "evening", "noon", "eod", "eow", "asap", "meanwhile", "otherwise", "anyway", "btw", "so", "but", "to", "of", "for", "with", "from"]);
+export function looksLikeClauseNotName(owner) {
+  const words = String(owner ?? "").replace(/^@/, "").trim().split(/\s+/u).filter(Boolean);
+  if (!words.length || words.length > 3) return true;
+  return words.some((word) => CLAUSE_WORDS.has(word.toLocaleLowerCase().replace(/[’]/g, "'")));
+}
+
 export function directAddressActions(body) {
   const actions = [];
   const regex = new RegExp(
@@ -24,6 +33,8 @@ export function directAddressActions(body) {
     const actionText = trimActionPhrase(body, verbIndex).split(/\s*;\s*/u)[0].trim();
     const groupAddress = /^(?:team|everyone|all|folks|guys)$/iu.test(owner.replace(/^@/, ""));
     const invalidAddress = RESERVED_SPEAKERS.has(owner.toLocaleLowerCase());
+    // A leading time/condition clause is not a person, but the request after it is still a task: keep it, ownerless.
+    if (actionText && !invalidAddress && looksLikeClauseNotName(owner)) { actions.push({ text: actionText, owner: null, classification: "unassigned_action" }); continue; }
     if (actionText && !invalidAddress) actions.push({ text: actionText, owner: groupAddress ? null : owner, classification: groupAddress ? "unassigned_action" : "assigned_task" });
     if (match[0].length === 0) regex.lastIndex += 1;
   }
