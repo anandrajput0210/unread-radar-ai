@@ -1,0 +1,50 @@
+[09:00, 08/11/2026] Maya: Morning. Let's close the release checklist in this chat.
+[09:05, 08/11/2026] Arjun: The API contract is ready for review.
+[09:10, 08/11/2026] Maya: Arjun, update the deployment notes by 3pm today.
+[09:15, 08/11/2026] Arjun: I will update them after checking the latest build.
+[09:20, 08/11/2026] Neha: Staging still has yesterday's seed data.
+[09:25, 08/11/2026] Dev: I can inspect the logs.
+[09:30, 08/11/2026] Maya: Dev, compare staging and production config before 12pm tomorrow.
+[09:35, 08/11/2026] Dev: I'll send a summary when the diff is ready.
+[09:40, 08/11/2026] Karan: Did the retry patch merge?
+[09:45, 08/11/2026] Arjun: Not yet. The tests are still running.
+[09:50, 08/11/2026] Maya: Karan, run the retry test suite and post the result by 4pm today.
+[09:55, 08/11/2026] Karan: Starting now.
+[10:00, 08/11/2026] Neha: I found two missing screenshots.
+[10:05, 08/11/2026] Maya: The design deck needs those after QA sends the final assets.
+[10:10, 08/11/2026] Neha: I can add them once QA sends them.
+[10:15, 08/11/2026] Rahul: QA expects to send files at 1pm.
+[10:20, 08/11/2026] Maya: Rahul, confirm the final assets are in the shared folder when they arrive.
+[10:25, 08/11/2026] Rahul: Understood.
+[10:30, 08/11/2026] Dev: The config diff shows one extra staging flag.
+[10:35, 08/11/2026] Maya: Dev, remove the staging-only flag before deployment.
+[10:40, 08/11/2026] Dev: It is behind a feature toggle. I am confirming with Arjun.
+[10:45, 08/11/2026] Arjun: That flag is unused in production.
+[10:50, 08/11/2026] Maya: Remove it after the smoke test passes.
+[10:55, 08/11/2026] Dev: The smoke test has started.
+[11:00, 08/11/2026] Karan: Retry tests passed locally.
+[11:05, 08/11/2026] Maya: Karan, paste the test summary in the release channel.
+[11:10, 08/11/2026] Karan: Done.
+[11:15, 08/11/2026] Neha: The final assets have arrived.
+[11:20, 08/11/2026] Maya: Neha, update the design deck with the two screenshots by 2:30pm.
+[11:25, 08/11/2026] Neha: On it.
+[11:30, 08/11/2026] Rahul: The folder now has the final assets.
+[11:35, 08/11/2026] Maya: No need to re-export the old mockups.
+[11:40, 08/11/2026] Arjun: The API docs still say the timeout is 10 seconds.
+[11:45, 08/11/2026] Maya: Arjun, change the timeout note to 15 seconds before release.
+[11:50, 08/11/2026] Arjun: I will update the docs and cross-check the example.
+[11:55, 08/11/2026] Dev: The staging smoke test passed.
+[12:00, 08/11/2026] Maya: Dev, check the feature toggle one last time before 5pm.
+[12:05, 08/11/2026] Dev: I will.
+[12:10, 08/11/2026] Karan: CI is green.
+[12:15, 08/11/2026] Maya: Karan, attach the CI run link to the release notes.
+[12:20, 08/11/2026] Karan: Added.
+[12:25, 08/11/2026] Rahul: The customer FAQ has an outdated retry explanation.
+[12:30, 08/11/2026] Maya: Rahul, draft a corrected FAQ paragraph by tomorrow noon.
+[12:35, 08/11/2026] Rahul: I can draft it.
+[12:40, 08/11/2026] Neha: The design deck has been updated.
+[12:45, 08/11/2026] Maya: Neha, confirm slide 7 renders correctly in the PDF export.
+[12:50, 08/11/2026] Neha: I am checking the export now.
+[12:55, 08/11/2026] Dev: The feature toggle has been removed from staging.
+[13:00, 08/11/2026] Maya: Dev, record that change in deployment notes after final verification.
+[13:05, 08/11/2026] Dev: I will do that after the last verification.
