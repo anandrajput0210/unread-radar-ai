@@ -35,3 +35,61 @@ Precision, recall, owner, deadline and lifecycle accuracy may not fall more than
 baseline; false positives and the duplicate rate may not rise; evidence validity must be exactly 100%
 (every task quote, acknowledgement, supporting-context, lifecycle-event and review-queue reference is
 re-checked independently against the chat text).
+
+
+## Schema v2 (annotation guide v1.1.1)
+
+The v2 scorer implements the metrics in the annotation guide. It is **additive**: the legacy scorer, the default
+`npm run bench` output, the ratchet and the baseline are unchanged, and the dev split is byte-for-byte the same.
+`npm run bench:v2` prints the extra report (with 95% clustered-bootstrap intervals) after the usual output.
+
+New `.chat` attributes (all optional; old files parse as before):
+
+| Where | Attribute | Meaning |
+| --- | --- | --- |
+| task | `class=confirmed\|possible\|none` | Exclusive classification. `none` marks a near-miss that is not a task (documentation; any extraction there is already a false positive). `level=possible` still works. |
+| task | `owner=Name \| - \| ~` | Known person, unknown, or ambiguous **between people**. |
+| task | `tid=C014-T003`, `basis=named\|accepted\|self\|reassigned\|none` | Stable ID and owner basis (recorded; not scored). |
+| task | `text="send the report"` | Anchors a task inside a message. **Required on every task in a message that holds two or more**, so pairing is by wording, not position. The scorer reports unanchored messages. |
+| task | `end=open\|in_progress\|delayed\|blocked\|completed\|cancelled` | End state. `status=` still works. |
+| task | `cond=pending\|satisfied\|rejected\|revoked\|ambiguous` | Condition state. |
+| message | `ev type=<event> link=<task id>\|unknown\|ambiguous\|none` | A lifecycle event on a task. **An event is never a task.** Events: acknowledged, reassigned, started, delayed, blocked, unblocked, resumed, completed, cancelled. |
+| `@chat` | `events=full` | The event list for this chat is complete, so predicted events that are not listed count as false positives. Without it, event precision is not scored for the chat. |
+
+`assigned` is the creation of an owned task and is scored through the task's owner, not as an event. Revoked
+conditions are expressible in gold; the extractor has no `revoked` state yet, so they show as mismatches.
+
+Unsupported values (event types, `end=`, `cond=`, `class=`, `basis=`, links to unknown tasks) are rejected by the
+loader with file and line. `assigned` is not an event type.
+
+Matching is a deterministic **maximum-cardinality, maximum-weight one-to-one assignment** across all compatible
+gold/prediction pairs. A prediction must be on one of the gold task's messages and, when the gold gives `text=`, its
+source span must overlap that text or its wording must be similar. Among assignments with the same maximum number of
+matches, the scorer prefers an exact normalized full-owner match, then source-span overlap, then closer wording, then
+earlier predictions. Owner identity compares the complete NFC-normalized, case-insensitive name; sharing only a first
+token does not make two people equivalent. An unmatched prediction is a **duplicate** only when it
+restates a matched prediction (same span or similar wording) on the same message; any other unmatched prediction is a
+false positive, even on a message that holds a gold task. **Precision counts duplicates** (matched / all findings); the
+duplicate-free figure is reported separately for comparison with the legacy scorer. Strict compares
+confirmed predictions with confirmed gold; lenient compares confirmed plus possible with both. In strict mode, a
+possible gold candidate is excluded individually; it does not hide unrelated confirmed predictions on the same
+message from false-positive scoring.
+
+Owner metrics (counts and denominators are always shown): wrong-owner assignments (known gold owner, different
+person named), fabricated-owner assignments (gold owner unknown or ambiguous, anyone named), correct abstention,
+missed owner, owner accuracy, and unsupported owner proposals (an owner on an unmatched prediction, or a name that
+does not appear in the chat). Deadlines: precision is correct deadlines over all predicted deadlines (a wrong date, a spurious date and a date on an
+unmatched prediction all count against it); recall is correct deadlines over gold deadlines. Events are matched one-to-one by
+event type and source message; one predicted event cannot satisfy multiple gold events. Detection (type and message) and
+linking (which task) are scored independently, so a correctly detected event whose gold link is ambiguous is a detected
+event and any task the extractor attached to it is a fabricated link. A predicted event's link is scored only against its
+matched gold event, not by borrowing a different event's task link from the same message. Event precision needs
+`@chat events=full`. Owner support is checked by exact Unicode-aware whole-word match ("Ann" is not supported by
+"planning"). Link accuracy covers events attached to the right task, with correct abstention when the gold link is ambiguous. Bootstrap (every rate metric, 21 in total): 10,000 whole-chat resamples, fixed seed 20261108, zero-denominator resamples
+excluded and counted, interval reported "unavailable" above 5% excluded.
+
+`tests/adversarial/` holds the safety suite (no names, injection text, a name mentioned but not assigned, spoofed
+speaker, and hostile model output: invented owner, invented quote, unsupported deadline, lifecycle overwrite). It
+tests properties, not accuracy, and is separate from any blind set. A multi-line message whose continuation line
+itself starts like an export header is indistinguishable from a new message in the file format; only inline spoofing
+is covered.

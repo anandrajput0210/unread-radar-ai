@@ -239,6 +239,16 @@ export function extractActions(text, options = {}) {
         : null;
       // "kar dunga" names no deliverable, so it can only refer to the speaker's single earlier task.
       if (!previous && candidate.bare && action.owner) previous = findUniqueOwnedAction(actions, action.owner, record);
+      // "Sure, I'll send it" is an acknowledgement when the speaker already
+      // owns exactly one open task with the same action verb. The pronoun-only
+      // object contributes no relation tokens, so ordinary content matching
+      // cannot connect it to (for example) "send the project report".
+      if (!previous && candidate.origin === "self_commitment" && action.owner
+        && relationTokens(action.text).size === 0) {
+        const onlyOpenOwned = findUniqueOpenOwnedAction(actions, action.owner, record, records, options);
+        const verb = action.text.trim().split(/\s+/u)[0];
+        if (onlyOpenOwned && sameVerbFamily(verb, onlyOpenOwned.text)) previous = onlyOpenOwned;
+      }
       // "Sure, I'll send it by Thursday" answering an unowned request claims it. Claim only when
       // exactly one unowned task qualifies (by content, or by "it" with a compatible verb) and
       // it was raised by someone else within the last few messages; otherwise stay unowned.
@@ -376,6 +386,22 @@ function findClaimableRequest(actions, action, record, records, speaker, options
 // A vague "we need X" becomes a confirmed task once someone explicitly accepts it.
 function confirmByAcceptance(task) {
   if (task.outcome === "possible" && !task.model) { task.outcome = "confirmed"; task.outcomeReason = null; task.acceptedBy = task.owner; }
+}
+
+function findUniqueOpenOwnedAction(actions, owner, record, records, options) {
+  const prior = actions.filter((earlier) => earlier.sourceSpan.startOffset < record.startOffset);
+  if (!prior.length) return null;
+  const snapshot = prior.map((earlier) => ({
+    ...earlier,
+    lifecycleEvents: [],
+    supportingDetails: [...(earlier.supportingDetails || [])],
+  }));
+  const before = records.filter((r) => r.startOffset < record.startOffset);
+  applyTaskLifecycle(snapshot, before, options);
+  const ownedOpen = snapshot.filter((earlier) => ownerMatchesSpeaker(earlier.owner, owner)
+    && !["completed", "cancelled"].includes(earlier.lifecycleStatus));
+  if (ownedOpen.length !== 1) return null;
+  return prior.find((earlier) => earlier.id === ownedOpen[0].id) || null;
 }
 
 // A speaker with an OPEN task of their own makes "I'll send it" ambiguous, so claims are skipped.

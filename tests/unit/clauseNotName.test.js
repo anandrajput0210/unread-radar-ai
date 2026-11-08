@@ -34,3 +34,20 @@ test("real named addressees still work", () => {
   assert.equal(b.length, 1);
   assert.equal(b[0].owner, "Mary Ann");
 });
+
+
+test("May and Will remain valid person names when used as explicit addressees", () => {
+  for (const name of ["May", "Will"]) {
+    const actions = run(`${name}, please send the invoice.`);
+    assert.equal(actions.length, 1, `${name} should yield exactly one task`);
+    assert.equal(actions[0].owner, name);
+    assert.equal(actions[0].text, "send the invoice");
+  }
+});
+
+test("a leading discourse marker is not treated as a person's name", () => {
+  const actions = run("Also, update the testing notes.");
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].owner, null);
+  assert.equal(actions[0].text, "update the testing notes");
+});

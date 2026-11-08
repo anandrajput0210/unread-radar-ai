@@ -1,3 +1,14 @@
+# Changelog
+
+## Explicit WebLLM opt-in and rules-only default — 2026-11-07
+
+- Rules-only analysis is now the default and does not request WebGPU, import WebLLM, or download model assets.
+- Added an explicit opt-in control for on-device Qwen analysis. Checking the control does not initialize the runtime; initialization begins only after the user clicks Analyze.
+- Centralized analysis-mode routing and retained the existing WebGPU adapter/device fallback to deterministic rules.
+- Added regression tests for default rules-only routing, no WebGPU request in rules-only mode, unavailable-WebGPU fallback, and rejection of unknown modes.
+- Added positive owner tests for the names `May` and `Will`.
+- Removed stale root-level patch/checksum artifacts and corrected the repository README.
+
 # Local build changes
 
 This working copy keeps the existing browser-local WebLLM architecture. It does not add Emergent Universal LLM Key, Gemini API, a hosted inference endpoint, or a backend API.

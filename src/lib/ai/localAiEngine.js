@@ -607,3 +607,38 @@ export async function analyzeTextLocally(rawText, onProgress = () => {}, options
   cacheResult(text, enriched, generation);
   return enriched;
 }
+
+/**
+ * Routes an explicitly selected analysis mode. Rules-only is the default and
+ * never asks for WebGPU or imports WebLLM. The model path is opt-in and checks
+ * adapter/device compatibility before attempting model initialization.
+ */
+export async function analyzeTextByMode(rawText, mode = "rules-only", onProgress = () => {}, options = {}) {
+  if (mode === "rules-only") {
+    return {
+      analysis: await analyzeTextWithRules(rawText, options),
+      mode: "rules-only",
+      fallbackReason: null,
+    };
+  }
+
+  if (mode !== "local-model") {
+    throw new Error(`Unsupported analysis mode: ${mode}`);
+  }
+
+  const { gpu, ...analysisOptions } = options;
+  const compatibility = await checkWebGPUCompatibility(gpu);
+  if (!compatibility.supported) {
+    return {
+      analysis: await analyzeTextWithRules(rawText, analysisOptions),
+      mode: "rules-only",
+      fallbackReason: compatibility.reason,
+    };
+  }
+
+  return {
+    analysis: await analyzeTextLocally(rawText, onProgress, analysisOptions),
+    mode: "local-model",
+    fallbackReason: null,
+  };
+}

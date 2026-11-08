@@ -15,7 +15,7 @@ Do not add a dummy backend, environment secrets, a hosted chat-completion provid
 
 ## Browser requirements
 
-The initial Qwen model download requires network access. Actual inference requires a compatible browser and working WebGPU support; performance and available GPU memory vary by device. The model may be cached by the browser after first use. A browser that cannot initialize the model can use the app's clearly labelled rules-only fallback, but that is not equivalent to Qwen inference.
+The default rules-only path requires neither WebGPU nor a model download. The optional Qwen model download requires network access only after the user explicitly enables on-device AI and starts an analysis. Actual inference requires a compatible browser and working WebGPU support; performance and available GPU memory vary by device. The model may be cached by the browser after first use. If the user opts in but adapter/device initialization is unavailable, the app uses its clearly labelled rules-only fallback, which is not equivalent to Qwen inference.
 
 The Vite development and preview servers and `vercel.json` currently configure these response headers:
 

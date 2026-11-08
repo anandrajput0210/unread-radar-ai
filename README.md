@@ -1,39 +1,26 @@
-# Unread Radar AI — Milestone D.5 extraction hardening
+# Unread Radar AI
 
-This is a targeted source overlay for the D.4 project. It contains only the files changed by D.5; it is not a complete application ZIP.
+Unread Radar AI is a browser-local conversation review tool. It extracts candidate tasks, owners, timing signals, lifecycle updates, and source evidence from pasted or exported chat logs. The deterministic rules pipeline is the default. The optional WebLLM/Qwen model path is only initialized after the user explicitly enables on-device AI and starts an analysis.
 
-## Included changes
-
-- `src/lib/extraction/actions.js` — integrates conditional tasks and conservative complaint/repair linkage.
-- `src/lib/extraction/candidates.js` — recognizes conditional imperative requests.
-- `src/lib/extraction/conditions.js` — resolves a condition using the QA speaker label while retaining exact message evidence.
-- `src/lib/extraction/implied.js` — recognizes a narrow complaint-implied remediation candidate.
-- `src/lib/extraction/lifecycle.js` — links a unique, recent progress update to an eligible conditional task using the shared claim policy.
-- `tests/unit/knownGaps.test.js` — replaces the four D.4 TODOs with active positive and negative regressions.
-- `benchmark/data/dev/hinglish.chat` — corrects the ambiguous shared-owner annotation for “Amit tum dono dekh lo” to no single owner.
-- `docs/milestone-d5-extraction-decisions.md` — records the product decisions and safety boundaries.
-
-## Apply
-
-1. Back up or commit your current working tree first.
-2. Extract this ZIP into the repository root, preserving folders, and allow replacement of matching files.
-3. Run:
+## Run locally
 
 ```bash
+npm ci
 npm test
-npm run bench
-npm run bench:inventory
 npm run build
+npm run dev
 ```
 
-Do not include or replace the private blind holdout. The D.5 checks use the development split only.
+## Important constraints
 
-## Verification from the assembled review copy
+- Rules-only mode works without WebGPU and does not load the WebLLM runtime.
+- Optional model inference runs in the browser and requires compatible WebGPU hardware. The first opted-in run downloads model assets into browser-managed cache.
+- Extracted tasks and interpretations require human review. Exact source-reference validity does not prove semantic correctness.
+- Conversation text, snapshots, and findings are held in page memory only; do not commit real chat exports or private evaluation data.
+- The committed synthetic benchmark is a regression suite, not evidence of production accuracy.
 
-- Tests: 247 total; 246 passed, 0 failed, 1 skipped (the holdout test), 0 TODO.
-- Development benchmark: strict precision 100%, strict recall 95.2%, owner accuracy 100%, deadline 100%, lifecycle 100%, evidence 100%, duplicates 0%, wrong-owner assignments 0. Lenient recall 100%.
-- Benchmark inventory: no remaining rows.
+## Project documentation
 
-These are tuned development-set results, not independent real-world accuracy estimates.
-
-The production build could not be reproduced in the Linux review environment because the ZIP's `node_modules` contains Windows Rollup binaries and lacks `@rollup/rollup-linux-x64-gnu`. Run `npm run build` in the Windows project after applying these files; do not treat the Linux dependency error as a source-code build failure.
+- [Local AI and analysis modes](docs/local-ai.md)
+- [Benchmark protocol](docs/benchmark.md)
+- [Deployment and release checks](docs/deployment.md)

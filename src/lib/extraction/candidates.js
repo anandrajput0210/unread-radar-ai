@@ -13,7 +13,7 @@ export function trimActionPhrase(body, startIndex) {
 
 // "Once it's done, ping me" / "After lunch, send the file": a time or condition clause
 // before the comma is not a person. Names are short and never contain function words.
-const CLAUSE_WORDS = new Set(["once", "when", "whenever", "after", "before", "if", "until", "unless", "while", "since", "because", "as", "by", "at", "in", "on", "during", "later", "then", "now", "today", "tomorrow", "tonight", "tmrw", "next", "it", "it's", "its", "its", "you", "you're", "youre", "we", "we're", "i", "i'm", "they", "that", "this", "the", "a", "an", "is", "are", "was", "done", "free", "ready", "lunch", "work", "back", "home", "morning", "evening", "noon", "eod", "eow", "asap", "meanwhile", "otherwise", "anyway", "btw", "so", "but", "to", "of", "for", "with", "from"]);
+const CLAUSE_WORDS = new Set(["once", "when", "whenever", "after", "before", "if", "until", "unless", "while", "since", "because", "as", "by", "at", "in", "on", "during", "later", "then", "now", "today", "tomorrow", "tonight", "tmrw", "next", "it", "it's", "its", "its", "you", "you're", "youre", "we", "we're", "i", "i'm", "they", "that", "this", "the", "a", "an", "is", "are", "was", "done", "free", "ready", "lunch", "work", "back", "home", "morning", "evening", "noon", "eod", "eow", "asap", "meanwhile", "otherwise", "anyway", "btw", "so", "but", "also", "additionally", "furthermore", "moreover", "besides", "plus", "to", "of", "for", "with", "from"]);
 export function looksLikeClauseNotName(owner) {
   const words = String(owner ?? "").replace(/^@/, "").trim().split(/\s+/u).filter(Boolean);
   if (!words.length || words.length > 3) return true;
