@@ -38,6 +38,18 @@ test("replying 'I'll send it' to an unowned request claims it and confirms it", 
   assert.equal(t.sourceReferenceStatus, "valid");
 });
 
+test("'Sure, I'll send it' refines the one matching task already assigned to the speaker", async () => {
+  const a = await run([
+    "[07/11/2026, 10:00] Rahul: Priya, send the project report by 5 PM today.",
+    "[07/11/2026, 10:02] Priya: Sure, I'll send it.",
+  ]);
+  assert.equal(a.length, 1, "the acknowledgement must not become a second task");
+  assert.equal(a[0].owner, "Priya");
+  assert.equal(a[0].text, "send the project report by 5 PM today");
+  assert.equal(a[0].acknowledgedBy, "Priya");
+  assert.ok(a[0].supportingDetails.some((item) => item.text === "Sure, I'll send it." && item.kind === "acknowledgement"));
+});
+
 test("'Will do.' answers the request directly before it, not an older task of the same speaker", async () => {
   const a = await run([
     "[10:00, 02/11/2026] Priya: Rahul, please send the brochure by Friday.",

@@ -3,14 +3,14 @@ import { analyzeConversations } from "../../src/lib/extraction/index.js";
 import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
 
 const norm = (s) => String(s ?? "").toLocaleLowerCase().replace(/^@/, "").trim();
-const sameOwner = (pred, gold) => {
+export const sameOwner = (pred, gold) => {
   if (!pred || !gold) return false;
   const p = norm(pred), g = norm(gold);
   return p === g || p.split(/\s+/)[0] === g.split(/\s+/)[0];
 };
-const dueOf = (a) => (typeof a.resolvedDueDate === "string" ? a.resolvedDueDate : a.resolvedDueDate?.date || a.resolvedDueDate?.iso || null);
+export const dueOf = (a) => (typeof a.resolvedDueDate === "string" ? a.resolvedDueDate : a.resolvedDueDate?.date || a.resolvedDueDate?.iso || null);
 
-function messageIndex(chat, action) {
+export function messageIndex(chat, action) {
   const pos = action.sourceSpan?.startOffset;
   return chat.messages.find((m) => pos >= m.start && pos < m.end)?.index ?? -1;
 }

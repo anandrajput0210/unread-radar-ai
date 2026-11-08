@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, Bell, CalendarClock, Check, CheckCheck, ChevronDown, ClipboardList, Command, Copy, Cpu, Download, FileText, Filter, Hash, LockKeyhole, LoaderCircle, MessageSquareText, Search, ShieldCheck, Sparkles, Target, Upload, Users, X } from "lucide-react";
-import { MAX_ANALYSIS_CHARACTERS, MODEL_ID, analyzeTextLocally, analyzeTextWithRules, checkLocalModelSupport, checkWebGPUCompatibility, clearLegacySessionCache, invalidateAnalysisWork } from "./lib/ai/localAiEngine.js";
+import { MAX_ANALYSIS_CHARACTERS, MODEL_ID, analyzeTextByMode, checkLocalModelSupport, clearLegacySessionCache, invalidateAnalysisWork } from "./lib/ai/localAiEngine.js";
 import { createEmptyAnalysis } from "./lib/ai/analysisSchema.js";
 import { createSourceSnapshot } from "./lib/import/sourceSnapshot.js";
 import { cx, urgencyTone, describeImportWarnings, toPercent } from "./lib/ui/format.js";
@@ -36,6 +36,7 @@ export default function App() {
   const [hasAnalysis, setHasAnalysis] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [modelState, setModelState] = useState({ state: "not-loaded", progress: 0, message: "Model not loaded yet" });
+  const [useLocalModel, setUseLocalModel] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
   const [dateOrderChoice, setDateOrderChoice] = useState("auto");
   const [legacyCacheStatus, setLegacyCacheStatus] = useState({ type: "", message: "" });
@@ -122,6 +123,7 @@ export default function App() {
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
     setTaskStatuses({});
+    setUseLocalModel(false);
     setActiveTab("summary");
     setSearchQuery("");
     setUrgencyFilter("All");
@@ -177,7 +179,7 @@ export default function App() {
         setChatText(reader.result);
         setLoadedFileName(file.name);
         resetAnalysis();
-        setFileStatus({ type: "success", message: `Loaded ${file.name} locally. Run local AI analysis when ready.` });
+        setFileStatus({ type: "success", message: `Loaded ${file.name} locally. Choose an analysis mode when ready.` });
       };
       reader.onerror = () => setFileStatus({ type: "error", message: "The selected file could not be read." });
       reader.onabort = () => setFileStatus({ type: "error", message: "File reading was cancelled." });
@@ -231,37 +233,15 @@ export default function App() {
       if (runId !== activeRunRef.current) return;
       setSourceSnapshot(snapshot);
 
-      const webGpu = await checkWebGPUCompatibility();
-      if (runId !== activeRunRef.current) return;
-
-      if (!webGpu.supported) {
-        const result = await analyzeTextWithRules(source, { sourceSnapshot: snapshot });
-        if (runId !== activeRunRef.current) return;
-        const boundaryNote = snapshot.boundaryMode === "opaque"
-          ? " This import has no reliably recognized speaker boundaries, so it is treated as one source message; author and timestamp remain unknown and message-level granularity is reduced."
-          : ` ${snapshot.messages.length} messages recognized (${snapshot.dialect}); extracted interpretations still require human review.`;
-        const importNote = describeImportWarnings(snapshot);
-        setAnalysis(result);
-        setHasAnalysis(true);
-        setTaskStatuses({});
-        setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
-        setAnalysisStatus({
-          type: "warning",
-          message: `WebGPU unavailable; rules-only fallback completed. Coverage is limited to deterministic local patterns, not language-model understanding.${boundaryNote}${importNote}`,
-        });
-        setActiveTab("summary");
-        return;
-      }
-
+      const selectedMode = useLocalModel ? "local-model" : "rules-only";
       setAnalysisStatus({
         type: "progress",
-        message: modelWasReady ? "Analyzing conversation on this device…" : "Loading the local model for its first use…",
+        message: selectedMode === "local-model"
+          ? "Checking WebGPU before loading the on-device model…"
+          : "Running deterministic rules-only analysis; the model runtime will not be loaded…",
       });
-      if (!modelWasReady) {
-        setModelState({ state: "loading", progress: 0, message: "Preparing browser-local model" });
-      }
 
-      const result = await analyzeTextLocally(source, (event) => {
+      const execution = await analyzeTextByMode(source, selectedMode, (event) => {
         if (runId !== activeRunRef.current) return;
         if (event.cached) usedCachedResult = true;
         if (event.stage === "model") {
@@ -275,33 +255,46 @@ export default function App() {
       }, { forceFresh, sourceSnapshot: snapshot });
 
       if (runId !== activeRunRef.current) return;
+      const result = execution.analysis;
       const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
-      const segmentCount = Number.isFinite(result.sourceChunks) ? result.sourceChunks : 1;
       const inferenceCompleted = result.modelExecution?.status === "completed";
+      const segmentCount = inferenceCompleted && Number.isFinite(result.sourceChunks) ? result.sourceChunks : 0;
       setAnalysis(result);
       setHasAnalysis(true);
       setTaskStatuses({});
-      setModelState({
-        state: inferenceCompleted ? "ready" : "rules-only",
-        progress: inferenceCompleted ? 100 : 0,
-        message: inferenceCompleted ? "Local model inference completed" : "Rules-only result; model inference not confirmed",
-      });
+
+      if (execution.mode === "rules-only" && execution.fallbackReason) {
+        setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
+      } else if (inferenceCompleted) {
+        setModelState({ state: "ready", progress: 100, message: "Local model inference completed" });
+      }
+
       const granularityNote = (snapshot.boundaryMode === "opaque"
         ? " Source boundaries were not recognizable; this import is represented as one source message with unknown author/time."
         : ` ${snapshot.messages.length} source messages recognized.`) + describeImportWarnings(snapshot);
-      const inferenceNote = usedCachedResult
-        ? (inferenceCompleted ? "Cached result reused; Qwen inference completed on the original run" : "Cached result reused")
-        : inferenceCompleted
-          ? `Qwen inference completed · ${result.modelExecution.structuredResponsesValidated} structured response${result.modelExecution.structuredResponsesValidated === 1 ? "" : "s"} validated`
-          : "Rules-only analysis completed; Qwen inference did not run";
+      const inferenceNote = execution.fallbackReason
+        ? `WebGPU unavailable; rules-only fallback completed (${execution.fallbackReason})`
+        : execution.mode === "rules-only"
+          ? "Rules-only analysis completed; WebLLM was not loaded"
+          : usedCachedResult
+            ? "Cached result reused; Qwen inference completed on the original run"
+            : `Qwen inference completed · ${result.modelExecution.structuredResponsesValidated} structured response${result.modelExecution.structuredResponsesValidated === 1 ? "" : "s"} validated`;
+      const statusType = execution.fallbackReason
+        ? "warning"
+        : execution.mode === "local-model" && inferenceCompleted && !(snapshot.importWarnings || []).some((w) => w.severity === "error")
+          ? "success"
+          : "";
+      const modelSegmentNote = execution.mode === "local-model"
+        ? ` · ${segmentCount} model segment${segmentCount === 1 ? "" : "s"}`
+        : "";
       setAnalysisStatus({
-        type: inferenceCompleted && !(snapshot.importWarnings || []).some((w) => w.severity === "error") ? "success" : "warning",
-        message: `${inferenceNote} · ${segmentCount} segment${segmentCount === 1 ? "" : "s"} · ${elapsedSeconds}s.${granularityNote}`,
+        type: statusType,
+        message: `${inferenceNote}${modelSegmentNote} · ${elapsedSeconds}s.${granularityNote}`,
       });
       setActiveTab("summary");
     } catch (error) {
       if (runId !== activeRunRef.current) return;
-      if (!modelWasReady) {
+      if (useLocalModel && !modelWasReady) {
         setModelState((current) => ({ ...current, state: "error", message: "Local model unavailable" }));
       }
       setAnalysisStatus({ type: "error", message: error instanceof Error ? error.message : "Local analysis failed. Check WebGPU support and try again." });
@@ -329,7 +322,7 @@ export default function App() {
   function downloadExecutiveBrief() {
     setExportStatus({ type: "", message: "" });
     if (!chatText.trim() || !hasAnalysis) {
-      setExportStatus({ type: "error", message: "Run local AI analysis before exporting the brief." });
+      setExportStatus({ type: "error", message: "Run an analysis before exporting the brief." });
       return;
     }
 
@@ -429,7 +422,11 @@ export default function App() {
                 </div>
               </div>
               {modelState.state === "loading" && <div className="mt-4"><div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-400"><span>{modelState.message}</span><span className="tabular-nums">{modelState.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-indigo-400 transition-[width] duration-300" style={{ width: `${modelState.progress}%` }} /></div></div>}
-              <p className="mt-4 text-xs leading-5 text-slate-400">First use downloads model weights and caches them in the browser. This may take time and requires WebGPU-compatible hardware. Your chat text is processed locally and is not sent to the model host.</p>
+              <label htmlFor="use-local-model" className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3.5">
+                <input id="use-local-model" type="checkbox" checked={useLocalModel} disabled={isAnalyzing} onChange={(event) => setUseLocalModel(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950" />
+                <span><span className="block text-sm font-semibold text-slate-100">Enable on-device AI for this analysis</span><span className="mt-1 block text-xs leading-5 text-slate-400">Off by default. Checking this box only enables the model path; the runtime and model weights are not loaded until you click Analyze. First use downloads Qwen weights into browser-managed cache. Requires compatible WebGPU hardware.</span></span>
+              </label>
+              <p className="mt-3 text-xs leading-5 text-slate-400">When unchecked, analysis uses deterministic local patterns only and does not load the WebLLM runtime. In either mode, conversation text is processed in the browser and is not sent to a cloud AI endpoint.</p>
             </div>
           </section>
 
@@ -449,14 +446,14 @@ export default function App() {
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
               <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
-                {isAnalyzing ? "Analyzing locally…" : modelState.state === "rules-only" ? "Run rules-only analysis" : hasAnalysis ? "Analyze again" : modelState.state === "ready" ? "Analyze with local AI" : "Analyze locally"}
+                {isAnalyzing ? "Analyzing locally…" : useLocalModel ? (modelState.state === "ready" ? "Analyze with on-device AI" : "Load model & analyze") : "Run rules-only analysis"}
               </button>
               {hasAnalysis && !isAnalyzing && <button type="button" onClick={() => runAnalysis({ forceFresh: true })} disabled={!chatText.trim()} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">Run fresh analysis (skip cache)</button>}
               {analysisStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2.5 text-xs leading-5", analysisStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : analysisStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : analysisStatus.type === "warning" ? "bg-amber-300/10 text-amber-100" : "bg-cyan-300/10 text-cyan-100")} role={analysisStatus.type === "error" ? "alert" : "status"} aria-live="polite">{analysisStatus.message}</p>}
               <ImportReview warnings={sourceSnapshot?.importWarnings} dateOrderChoice={dateOrderChoice} disabled={isAnalyzing} onDateOrderChange={(value) => { setDateOrderChoice(value); runAnalysis({ forceFresh: true, dateOrder: value }); }} />
               {legacyCacheStatus.message && <p className={cx("mt-2 rounded-lg px-3 py-2 text-xs leading-5", legacyCacheStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={legacyCacheStatus.type === "error" ? "alert" : "status"}>{legacyCacheStatus.message}</p>}
               {hasAnalysis && sourceSnapshot && <p className="mt-2 rounded-lg border border-slate-700/60 bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">Source snapshot: {sourceSnapshot.messages.length} {sourceSnapshot.messages.length === 1 ? "message" : "messages"} · {sourceSnapshot.boundaryMode === "opaque" ? "Opaque import; reduced message-level granularity; author and timestamp unknown" : "Recognized source records; original order preserved"}.</p>}
-              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">When WebGPU is available, the first model run downloads model weights and performs inference on this device. If WebGPU adapter/device setup fails, rules-only mode uses local patterns instead. Conversation contents are not posted to a cloud AI endpoint.</p></div></div></div>
+              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint.</p></div></div></div>
             </div>
 
             <div className="min-w-0 space-y-5">
@@ -473,12 +470,12 @@ export default function App() {
                   <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[11px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your AI brief will appear here" description="Paste or upload a conversation, then run local AI analysis. The language model is cross-checked with local rules for common task, mention, and date patterns." /> : <><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your catch-up brief will appear here" description="Paste or upload a conversation and run rules-only extraction by default. You can explicitly opt in to the on-device model when you want additional candidate suggestions." /> : <><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
                     <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
                       <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}
 
-                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run local AI analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><OutcomeFilter value={outcomeFilter} onChange={setOutcomeFilter} /></div>
+                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run an analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><OutcomeFilter value={outcomeFilter} onChange={setOutcomeFilter} /></div>
                     {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
                     {possibleCount > 0 && <p className="rounded-lg border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100" role="note">{possibleCount} of {analysis.actions.length} task{analysis.actions.length === 1 ? " is" : "s are"} marked <strong>Possible · review</strong>: the wording suggests a task but the evidence is weaker (an implied request, no named deliverable, or a suggestion). Confirm or reject each one.</p>}
                     {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const status = getTaskStatus(taskStatuses, task.id); return <TaskCard key={task.id} task={task} status={status} onShowSource={showSourceInInput} onChangeStatus={changeTaskStatus} />; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}

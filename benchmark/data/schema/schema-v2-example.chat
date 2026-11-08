@@ -1,0 +1,17 @@
+# Schema v2 examples. Loader and scorer tests read this folder; it is NOT part of the dev ratchet.
+# Task attrs: owner=Name|-|~ (known | unknown | ambiguous people) due=ISO|- class=confirmed|possible|none
+#             tid=C014-T001  basis=named|accepted|self|reassigned|none  end=<end state>  cond=<condition state>
+# Event line: "ev type=<event> link=<task id>|unknown|ambiguous|none". An event is never a task.
+# @chat events=full declares the event list complete, so predicted events not listed are false positives.
+@chat id=s-ack-update split=schema cats=schema,english start=02/11/2026 events=full
+10:00 Rahul: Priya, send the project report by Friday. => t1 tid=C001-T001 owner=Priya basis=named due=2026-11-06 end=completed
+10:05 Priya: Sure, I will send it. => ev type=acknowledged link=t1
+10:30 Priya: Report sent. => ev type=completed link=t1
+
+@chat id=s-ambiguous-link split=schema cats=schema,english start=02/11/2026 events=full
+10:00 Rahul: Priya, send the report. => t1 owner=Priya basis=named
+10:01 Rahul: Priya, update the testing notes. => t2 owner=Priya basis=named
+10:02 Priya: I'll handle it. => ev type=acknowledged link=ambiguous
+
+@chat id=s-near-miss split=schema cats=schema,english,negative-control start=02/11/2026
+10:00 Sam: Admin said the server was down last night. => n1 class=none

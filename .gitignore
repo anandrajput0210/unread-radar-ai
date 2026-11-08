@@ -12,6 +12,8 @@ test-results/
 *.log
 milestone-*.patch
 fix-line-endings.patch
+/ownership-fix.patch
+/SHA256SUMS.txt
 
 # Sealed benchmark holdout: keep private so it stays blind
 benchmark/data/holdout/
