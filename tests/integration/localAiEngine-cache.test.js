@@ -159,6 +159,11 @@ test("records Qwen inference only after every injected model segment returns val
     segmentsCompleted: 1,
     structuredResponsesValidated: 1,
   });
+  assert.equal(typeof result.diagnostics.inferenceMs, "number");
+  assert.ok(result.diagnostics.inferenceMs >= 0);
+  assert.equal(result.diagnostics.runtimeImportMs, null);
+  assert.equal(result.diagnostics.modelInitializationMs, null);
+  assert.equal(result.diagnostics.inferenceEngineOverride, true);
 });
 
 

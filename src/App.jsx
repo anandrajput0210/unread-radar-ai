@@ -18,6 +18,10 @@ import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, up
 import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 
+function formatDurationMs(value) {
+  return Number.isFinite(value) ? `${(value / 1000).toFixed(1)}s` : "n/a";
+}
+
 export default function App() {
   const [chatText, setChatText] = useState("");
   const [activeTab, setActiveTab] = useState("summary");
@@ -287,9 +291,15 @@ export default function App() {
       const modelSegmentNote = execution.mode === "local-model"
         ? ` · ${segmentCount} model segment${segmentCount === 1 ? "" : "s"}`
         : "";
+      const diagnostics = result.diagnostics;
+      const timingNote = execution.mode !== "local-model" || !diagnostics
+        ? ""
+        : diagnostics.engineReused
+          ? ` · engine reused; inference ${formatDurationMs(diagnostics.inferenceMs)}`
+          : ` · import ${formatDurationMs(diagnostics.runtimeImportMs)}; init ${formatDurationMs(diagnostics.modelInitializationMs)}; inference ${formatDurationMs(diagnostics.inferenceMs)}`;
       setAnalysisStatus({
         type: statusType,
-        message: `${inferenceNote}${modelSegmentNote} · ${elapsedSeconds}s.${granularityNote}`,
+        message: `${inferenceNote}${modelSegmentNote}${timingNote} · ${elapsedSeconds}s.${granularityNote}`,
       });
       setActiveTab("summary");
     } catch (error) {

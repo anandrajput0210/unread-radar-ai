@@ -16,6 +16,16 @@ const LEGACY_SESSION_CACHE_KEY = "unread-radar-ai:analysis-results:v2";
 const analysisCache = new Map();
 let analysisGeneration = 0;
 
+function monotonicNow() {
+  return globalThis.performance && typeof globalThis.performance.now === "function"
+    ? globalThis.performance.now()
+    : Date.now();
+}
+
+function elapsedMs(startedAt) {
+  return Math.round((monotonicNow() - startedAt) * 10) / 10;
+}
+
 function cloneResult(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -427,13 +437,18 @@ export async function checkWebGPUCompatibility(gpu = globalThis.navigator?.gpu) 
   }
 }
 
-export async function loadLocalModel(onProgress = () => {}) {
+export async function loadLocalModel(onProgress = () => {}, onTiming = () => {}) {
   const support = checkLocalModelSupport();
   if (!support.supported) throw new Error(support.reason);
+  const engineReused = Boolean(enginePromise);
+  onTiming({ name: "engineReused", value: engineReused });
   if (!enginePromise) {
     enginePromise = (async () => {
       onProgress({ stage: "model", progress: 0, message: "Loading local inference runtime" });
+      const importStartedAt = monotonicNow();
       const webllm = await import("@mlc-ai/web-llm");
+      onTiming({ name: "runtimeImportMs", durationMs: elapsedMs(importStartedAt) });
+      const initializationStartedAt = monotonicNow();
       const engine = await webllm.CreateMLCEngine(MODEL_ID, {
         logLevel: "WARN",
         initProgressCallback: (report) => {
@@ -444,6 +459,7 @@ export async function loadLocalModel(onProgress = () => {}) {
           });
         },
       });
+      onTiming({ name: "modelInitializationMs", durationMs: elapsedMs(initializationStartedAt) });
       onProgress({ stage: "model", progress: 1, message: "Local model initialized" });
       return engine;
     })().catch((error) => {
@@ -572,22 +588,41 @@ export async function analyzeTextLocally(rawText, onProgress = () => {}, options
 
   // An engine override is an internal test seam. The application never sets
   // it; normal browser runs always initialize the configured WebLLM engine.
-  const engine = options.inferenceEngineOverride || await loadLocalModel(onProgress);
+  const modelPathStartedAt = monotonicNow();
+  const timing = {
+    runtimeImportMs: null,
+    modelInitializationMs: null,
+    inferenceMs: null,
+    segmentInferenceMs: [],
+    engineReused: false,
+  };
+  const engine = options.inferenceEngineOverride || await loadLocalModel(onProgress, (event) => {
+    if (event.name === "engineReused") timing.engineReused = event.value === true;
+    if (event.name === "runtimeImportMs" || event.name === "modelInitializationMs") {
+      timing[event.name] = event.durationMs;
+    }
+  });
   if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
   const chunks = splitIntoChunks(text);
   if (!chunks.length) throw new Error("No readable chat text was found.");
 
+  const inferenceStartedAt = monotonicNow();
   const results = [];
   for (let index = 0; index < chunks.length; index += 1) {
     if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
+    const segmentStartedAt = monotonicNow();
     const result = await analyzeChunk(engine, chunks[index], index, chunks.length, onProgress);
+    timing.segmentInferenceMs.push(elapsedMs(segmentStartedAt));
     results.push(result);
     onProgress({ stage: "analysis", progress: (index + 1) / chunks.length, message: `Processed segment ${index + 1} of ${chunks.length}` });
   }
+  timing.inferenceMs = elapsedMs(inferenceStartedAt);
 
   if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
+  const mergeStartedAt = monotonicNow();
   const combined = combineAnalysisChunks(text, results, MODEL_ID);
   const enriched = mergeRuleFindings(text, combined, sourceSnapshot);
+  const mergeMs = elapsedMs(mergeStartedAt);
   // This record is created only after every WebLLM segment returned valid,
   // parseable structured output. Model readiness alone is not treated as proof
   // that an inference request ran successfully.
@@ -599,6 +634,17 @@ export async function analyzeTextLocally(rawText, onProgress = () => {}, options
     segmentsRequested: chunks.length,
     segmentsCompleted: results.length,
     structuredResponsesValidated: results.length,
+  };
+  // Timing diagnostics contain durations only; no conversation text or findings.
+  enriched.diagnostics = {
+    runtimeImportMs: timing.runtimeImportMs,
+    modelInitializationMs: timing.modelInitializationMs,
+    inferenceMs: timing.inferenceMs,
+    segmentInferenceMs: timing.segmentInferenceMs,
+    mergeMs,
+    modelPathMs: elapsedMs(modelPathStartedAt),
+    engineReused: timing.engineReused,
+    inferenceEngineOverride: Boolean(options.inferenceEngineOverride),
   };
   if (!enriched.summary.length && !enriched.actions.length && !enriched.decisions.length && !enriched.deadlines.length && !enriched.mentions.length) {
     enriched.summary = ["The local model did not identify clear actions, decisions, deadlines, or direct mentions in this conversation."];

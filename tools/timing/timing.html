@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Unread Radar timing harness (dev only)</title>
+<style>body{font:14px system-ui;margin:24px;max-width:900px}button{padding:8px 14px;margin:4px 6px 4px 0}pre{background:#f4f4f4;padding:12px;overflow:auto;max-height:420px}</style></head>
+<body>
+<h1>Timing harness (dev only)</h1>
+<p>Measures dynamic import, engine initialisation and inference separately, for 3 and ~50 messages. Run once with an empty cache (cold), then reload the page and run again (warm). See README.md.</p>
+<button id="run">Run timing</button><button id="copy" disabled>Copy JSON</button><button id="clear">Clear model cache</button>
+<pre id="log">Ready.</pre>
+<script type="module" src="./browserTiming.js"></script>
+</body></html>
