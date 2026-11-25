@@ -21,7 +21,7 @@ function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses })
             {(task.lifecycleStatus === "blocked" || task.lifecycleStatus === "delayed") && <Badge tone="amber">{task.lifecycleStatus}</Badge>}
           </div>
           {task.sourceEvidence?.quote && (
-            <button type="button" onClick={() => onShowSource(task.sourceEvidence)} className="mt-1.5 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100">
+            <button type="button" onClick={() => onShowSource(task.sourceEvidence, task.sourceReferenceStatus)} className="mt-1.5 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
               Show original in chat
             </button>
           )}

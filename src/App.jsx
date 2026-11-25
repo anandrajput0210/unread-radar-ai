@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, Bell, CalendarClock, Check, CheckCheck, ChevronDown, ClipboardList, Command, Copy, Cpu, Download, FileText, Filter, Hash, LockKeyhole, LoaderCircle, MessageSquareText, Search, ShieldCheck, Sparkles, Target, Upload, Users, X } from "lucide-react";
 import { MAX_ANALYSIS_CHARACTERS, MODEL_ID, analyzeTextByMode, checkLocalModelSupport, clearLegacySessionCache, invalidateAnalysisWork, validateAnalysisInputSize } from "./lib/ai/localAiEngine.js";
 import { createEmptyAnalysis } from "./lib/ai/analysisSchema.js";
@@ -11,6 +11,7 @@ import { EmptyState } from "./components/ui/EmptyState.jsx";
 import { ProgressMeter } from "./components/ui/ProgressMeter.jsx";
 import { TaskCard } from "./components/TaskCard.jsx";
 import { TaskWhyDataContext } from "./components/TaskWhyPanel.jsx";
+import { TaskSourcePane } from "./components/TaskSourcePane.jsx";
 import { PriorityItem } from "./components/PriorityItem.jsx";
 import { ReviewQueue } from "./components/ReviewQueue.jsx";
 import { CatchUpBrief } from "./components/CatchUpBrief.jsx";
@@ -47,7 +48,8 @@ export default function App() {
   const [modelState, setModelState] = useState({ state: "not-loaded", progress: 0, message: "Model not loaded yet" });
   const [useLocalModel, setUseLocalModel] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
-  const sourceSpeakers = listSpeakers(sourceSnapshot);
+  const [selectedSource, setSelectedSource] = useState(null);
+  const sourceSpeakers = useMemo(() => listSpeakers(sourceSnapshot), [sourceSnapshot]);
   const [briefMe, setBriefMe] = useState(null);
   const [briefAsOf, setBriefAsOf] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
   const [dateOrderChoice, setDateOrderChoice] = useState("auto");
@@ -55,6 +57,7 @@ export default function App() {
   const fileInputRef = useRef(null);
   const chatTextareaRef = useRef(null);
   const activeRunRef = useRef(0);
+  const sourceNavigationRef = useRef(0);
   const legacyCleanupAttemptedRef = useRef(false);
 
   useEffect(() => {
@@ -132,6 +135,7 @@ export default function App() {
     activeRunRef.current += 1;
     invalidateAnalysisWork();
     setSourceSnapshot(null);
+    setSelectedSource(null);
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
     setTaskStatuses({});
@@ -366,16 +370,14 @@ export default function App() {
     setAnalysisStatus({ type: "success", message: "Candidate rejected by you. It was removed from active review and was not marked completed." });
   }
 
-  function showSourceInInput(reference) {
-    if (!reference || reference.snapshotId !== sourceSnapshot?.snapshotId || !Number.isSafeInteger(reference.startOffset) || !Number.isSafeInteger(reference.endOffset)) {
-      setAnalysisStatus({ type: "warning", message: "This source reference is unavailable or belongs to an older chat snapshot." });
-      return;
-    }
-    const textarea = chatTextareaRef.current;
-    if (!textarea) return;
-    textarea.scrollIntoView({ behavior: "smooth", block: "center" });
-    textarea.focus();
-    textarea.setSelectionRange(reference.startOffset, reference.endOffset);
+  function showSourceInInput(reference, referenceStatus = "unverified") {
+    sourceNavigationRef.current += 1;
+    setSelectedSource({
+      reference: reference || null,
+      referenceStatus,
+      navigationId: sourceNavigationRef.current,
+    });
+    setActiveTab("tasks");
   }
 
   function downloadExecutiveBrief() {
@@ -542,7 +544,19 @@ export default function App() {
                   {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run an analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><OutcomeFilter value={outcomeFilter} onChange={setOutcomeFilter} /></div>
                     {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
                     {possibleCount > 0 && <p className="rounded-lg border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100" role="note">{possibleCount} of {analysis.actions.length} task{analysis.actions.length === 1 ? " is" : "s are"} marked <strong>Possible · review</strong>: the wording suggests a task but the evidence is weaker (an implied request, no named deliverable, or a suggestion). Confirm or reject each one.</p>}
-                    {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const status = getTaskStatus(taskStatuses, task.id); return <TaskCard key={task.id} task={task} status={status} onShowSource={showSourceInInput} onChangeStatus={changeTaskStatus} />; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
+                      {filteredActions.length ? (
+                        <div className="space-y-2">
+                          {filteredActions.map((task) => {
+                            const status = getTaskStatus(taskStatuses, task.id);
+                            return <TaskCard key={task.id} task={task} status={status} onShowSource={showSourceInInput} onChangeStatus={changeTaskStatus} />;
+                          })}
+                        </div>
+                      ) : (
+                        <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />
+                      )}
+                      <TaskSourcePane snapshot={sourceSnapshot} selection={selectedSource} />
+                    </div>
                     <ReviewQueue items={analysis.reviewQueue || []} decisions={reviewDecisions} onShowSource={showSourceInInput} onPromote={promoteReviewItem} onReject={rejectReviewItem} />
                     {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review changes last for this page session.</p>}</>}</div>}
 

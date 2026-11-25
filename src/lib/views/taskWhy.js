@@ -149,6 +149,7 @@ function buildTimeline(task, messages) {
       quote: requestQuote,
       speaker: speakerAt(messages, messageIndex),
       messageIndex,
+      referenceStatus: typeof task.sourceReferenceStatus === "string" ? task.sourceReferenceStatus : "unverified",
       offset: sourceOffset(requestReference),
     });
   }
@@ -168,6 +169,9 @@ function buildTimeline(task, messages) {
         ? event.actor.trim()
         : speakerAt(messages, messageIndex),
       messageIndex,
+      referenceStatus: typeof event.sourceReferenceStatus === "string"
+        ? event.sourceReferenceStatus
+        : "unverified",
       offset: sourceOffset(reference),
     });
   }

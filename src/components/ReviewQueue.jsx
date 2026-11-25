@@ -29,7 +29,7 @@ export function ReviewQueue({ items = [], decisions = {}, onShowSource, onPromot
           </div>
           <blockquote className="text-xs leading-5 text-slate-300">{item.sourceEvidence?.quote || item.text}</blockquote>
           {item.sourceEvidence?.quote && (
-            <button type="button" onClick={() => onShowSource(item.sourceEvidence)} className="mt-1 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100">
+            <button type="button" onClick={() => onShowSource(item.sourceEvidence, item.sourceReferenceStatus)} className="mt-1 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
               Show original in chat
             </button>
           )}
