@@ -10,9 +10,11 @@ import { MetricCard } from "./components/ui/MetricCard.jsx";
 import { EmptyState } from "./components/ui/EmptyState.jsx";
 import { ProgressMeter } from "./components/ui/ProgressMeter.jsx";
 import { TaskCard } from "./components/TaskCard.jsx";
+import { TaskWhyDataContext } from "./components/TaskWhyPanel.jsx";
 import { PriorityItem } from "./components/PriorityItem.jsx";
 import { ReviewQueue } from "./components/ReviewQueue.jsx";
 import { CatchUpBrief } from "./components/CatchUpBrief.jsx";
+import { listSpeakers } from "./lib/views/catchUpBrief.js";
 import { ImportReview } from "./components/ImportReview.jsx";
 import { OutcomeFilter } from "./components/OutcomeFilter.jsx";
 import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, promoteReviewCandidate, rejectReviewCandidate, updateTaskStatus } from "./lib/views/taskWorkflow.js";
@@ -45,6 +47,7 @@ export default function App() {
   const [modelState, setModelState] = useState({ state: "not-loaded", progress: 0, message: "Model not loaded yet" });
   const [useLocalModel, setUseLocalModel] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
+  const sourceSpeakers = listSpeakers(sourceSnapshot);
   const [briefMe, setBriefMe] = useState(null);
   const [briefAsOf, setBriefAsOf] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
   const [dateOrderChoice, setDateOrderChoice] = useState("auto");
@@ -456,6 +459,7 @@ export default function App() {
           </div>
         </header>
 
+        <TaskWhyDataContext.Provider value={{ messages: sourceSnapshot?.messages || [], speakers: sourceSpeakers }}>
         <main>
           <section className="grid gap-8 py-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-end">
             <div>
@@ -554,6 +558,7 @@ export default function App() {
 
           <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU inference when available · Rules-only fallback otherwise</p></footer>
         </main>
+        </TaskWhyDataContext.Provider>
       </div>
     </div>
   );
