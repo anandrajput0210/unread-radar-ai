@@ -1,5 +1,12 @@
 # Changelog
 
+## Opt-in local persistence and change comparison — 2026-11-25
+
+- Added off-by-default browser-local persistence for analysis results, human review decisions, selected identity, and source fingerprint metadata.
+- Added exact-fingerprint restore, speaker validation for restored identity, a clear-data action, storage-failure notices, and a five-session/512 KiB record limit.
+- Added a conservative “What changed since last time” comparison for exact evidence and source-message positions, including new tasks, lifecycle resolution, owner changes, and timing changes.
+- Kept raw chat text and full source snapshots out of persisted records; storage remains local to this browser and is not synchronized.
+
 ## Trust UI — 2026-11-25
 
 - Added a display-only “Why this task?” panel for owner basis, timing, lifecycle events, exact evidence, and caveats.

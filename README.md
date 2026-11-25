@@ -100,17 +100,20 @@ Run `npm run bench:v2` to reproduce these results for the current branch. These 
 - A chat’s silence does not prove a task was missed or completed.
 - The catch-up brief only says “assigned” when its owner match and participant identity checks pass; assignment alone does not mean someone is waiting.
 - Optional local AI requires compatible WebGPU hardware. Model download/loading/inference can fail; fallback uses rules-only findings and has narrower coverage.
-- Inputs are limited to 60,000 characters for interactive analysis. The app does not persist conversations across reloads.
+- Inputs are limited to 60,000 characters for interactive analysis. Raw chat text and full source snapshots are not saved by the app; analysis and review data can persist across reloads only when the user opts in.
 - No real-world independent labelled evaluation set is included. Real-world accuracy remains unvalidated.
 
 ## Privacy and authorization
 
 Conversation parsing and analysis run in the browser. Review the source and verify each interpretation before relying on it. Use only chat exports you are authorized to process. Do not commit private chats or holdout data.
 
+Saving analysis is off by default. When enabled, the app stores up to five analysis records in this browser's `localStorage`: extracted results (including quoted evidence), review decisions and task statuses, selected identity, a source fingerprint, message fingerprints/ranges, and save/schema metadata. It does not store raw chat text or the full source snapshot, and it does not sync data to another device. Turning saving off stops new writes but does not delete prior records; use **Clear saved data** to remove all records written by this feature. Storage failures leave the analysis available in memory.
+
 ## Project documentation
 
 - [Catch-up brief behavior and safety rules](docs/catch-up-brief.md)
 - [Local AI and analysis modes](docs/local-ai.md)
+- [Optional local persistence](docs/persistence.md)
 - [Benchmark protocol](docs/benchmark.md)
 - [Annotation and independent holdout workflow](benchmark/README.md)
 - [Deployment and release checks](docs/deployment.md)
