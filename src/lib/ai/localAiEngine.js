@@ -6,6 +6,20 @@ import { createSourceSnapshot } from "../import/sourceSnapshot.js";
 
 export const MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 export const MAX_ANALYSIS_CHARACTERS = 60000;
+export function validateAnalysisInputSize(text) {
+  if (typeof text !== "string") {
+    return {
+      valid: false,
+      length: null,
+      limit: MAX_ANALYSIS_CHARACTERS,
+      message: "Input must be a string.",
+    };
+  }
+  const length = text.length;
+  return length >= 0 && length <= MAX_ANALYSIS_CHARACTERS
+    ? { valid: true, length, limit: MAX_ANALYSIS_CHARACTERS }
+    : { valid: false, length, limit: MAX_ANALYSIS_CHARACTERS, message: `Input exceeds the ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} character limit (${length.toLocaleString()} characters). Split it into smaller inputs before analysis.` };
+}
 const TARGET_CHUNK_CHARACTERS = 4600;
 const MAX_OUTPUT_TOKENS = 1600;
 
@@ -596,12 +610,15 @@ export async function analyzeTextLocally(rawText, onProgress = () => {}, options
     segmentInferenceMs: [],
     engineReused: false,
   };
-  const engine = options.inferenceEngineOverride || await loadLocalModel(onProgress, (event) => {
+  const engine = options.inferenceEngineOverride
+    || (options.modelLoaderOverride
+      ? await options.modelLoaderOverride(onProgress)
+      : await loadLocalModel(onProgress, (event) => {
     if (event.name === "engineReused") timing.engineReused = event.value === true;
     if (event.name === "runtimeImportMs" || event.name === "modelInitializationMs") {
       timing[event.name] = event.durationMs;
     }
-  });
+  }));
   if (!isAnalysisGenerationCurrent(generation)) throw new Error("Analysis was invalidated because its source was cleared or changed.");
   const chunks = splitIntoChunks(text);
   if (!chunks.length) throw new Error("No readable chat text was found.");
@@ -672,19 +689,44 @@ export async function analyzeTextByMode(rawText, mode = "rules-only", onProgress
     throw new Error(`Unsupported analysis mode: ${mode}`);
   }
 
+  const generation = analysisGeneration;
   const { gpu, ...analysisOptions } = options;
   const compatibility = await checkWebGPUCompatibility(gpu);
+  if (!isAnalysisGenerationCurrent(generation)) {
+    throw new Error("Analysis was invalidated because its source was cleared or changed.");
+  }
   if (!compatibility.supported) {
+    const analysis = await analyzeTextWithRules(rawText, analysisOptions);
+    if (!isAnalysisGenerationCurrent(generation)) {
+      throw new Error("Analysis was invalidated because its source was cleared or changed.");
+    }
     return {
-      analysis: await analyzeTextWithRules(rawText, analysisOptions),
+      analysis,
       mode: "rules-only",
       fallbackReason: compatibility.reason,
     };
   }
 
-  return {
-    analysis: await analyzeTextLocally(rawText, onProgress, analysisOptions),
-    mode: "local-model",
-    fallbackReason: null,
-  };
+  try {
+    return {
+      analysis: await analyzeTextLocally(rawText, onProgress, analysisOptions),
+      mode: "local-model",
+      fallbackReason: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const cancellation = error?.name === "AbortError"
+      || /\b(cancelled|canceled|aborted|invalidation|invalidated)\b/iu.test(message);
+    if (cancellation) throw error;
+    if (!isAnalysisGenerationCurrent(generation)) throw error;
+    const analysis = await analyzeTextWithRules(rawText, analysisOptions);
+    if (!isAnalysisGenerationCurrent(generation)) {
+      throw new Error("Analysis was invalidated because its source was cleared or changed.");
+    }
+    return {
+      analysis,
+      mode: "rules-only",
+      fallbackReason: `Local AI failed; rules-only analysis was used. ${message}`,
+    };
+  }
 }

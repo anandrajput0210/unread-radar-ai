@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, Bell, CalendarClock, Check, CheckCheck, ChevronDown, ClipboardList, Command, Copy, Cpu, Download, FileText, Filter, Hash, LockKeyhole, LoaderCircle, MessageSquareText, Search, ShieldCheck, Sparkles, Target, Upload, Users, X } from "lucide-react";
-import { MAX_ANALYSIS_CHARACTERS, MODEL_ID, analyzeTextByMode, checkLocalModelSupport, clearLegacySessionCache, invalidateAnalysisWork } from "./lib/ai/localAiEngine.js";
+import { MAX_ANALYSIS_CHARACTERS, MODEL_ID, analyzeTextByMode, checkLocalModelSupport, clearLegacySessionCache, invalidateAnalysisWork, validateAnalysisInputSize } from "./lib/ai/localAiEngine.js";
 import { createEmptyAnalysis } from "./lib/ai/analysisSchema.js";
 import { createSourceSnapshot } from "./lib/import/sourceSnapshot.js";
 import { cx, urgencyTone, describeImportWarnings, toPercent } from "./lib/ui/format.js";
@@ -15,7 +15,7 @@ import { ReviewQueue } from "./components/ReviewQueue.jsx";
 import { CatchUpBrief } from "./components/CatchUpBrief.jsx";
 import { ImportReview } from "./components/ImportReview.jsx";
 import { OutcomeFilter } from "./components/OutcomeFilter.jsx";
-import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, updateTaskStatus } from "./lib/views/taskWorkflow.js";
+import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, promoteReviewCandidate, rejectReviewCandidate, updateTaskStatus } from "./lib/views/taskWorkflow.js";
 import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 
@@ -27,6 +27,7 @@ export default function App() {
   const [chatText, setChatText] = useState("");
   const [activeTab, setActiveTab] = useState("summary");
   const [taskStatuses, setTaskStatuses] = useState({});
+  const [reviewDecisions, setReviewDecisions] = useState({});
   const [searchQuery, setSearchQuery] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -130,6 +131,7 @@ export default function App() {
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
     setTaskStatuses({});
+    setReviewDecisions({});
     setBriefMe(null);
     setUseLocalModel(false);
     setActiveTab("summary");
@@ -184,6 +186,11 @@ export default function App() {
           setFileStatus({ type: "error", message: "The file did not decode as text. Try UTF-8 plain text." });
           return;
         }
+        const sizeCheck = validateAnalysisInputSize(reader.result);
+        if (!sizeCheck.valid) {
+          setFileStatus({ type: "error", message: sizeCheck.message });
+          return;
+        }
         setChatText(reader.result);
         setLoadedFileName(file.name);
         resetAnalysis();
@@ -219,8 +226,9 @@ export default function App() {
       setAnalysisStatus({ type: "error", message: "Paste or upload a chat log before running analysis." });
       return;
     }
-    if (source.length > MAX_ANALYSIS_CHARACTERS) {
-      setAnalysisStatus({ type: "error", message: `This log is too large for a safe interactive run (${source.length.toLocaleString()} characters). Split it into smaller files or keep it under ${MAX_ANALYSIS_CHARACTERS.toLocaleString()} characters.` });
+    const sizeCheck = validateAnalysisInputSize(source);
+    if (!sizeCheck.valid) {
+      setAnalysisStatus({ type: "error", message: `This log is too large for safe analysis. ${sizeCheck.message}` });
       return;
     }
 
@@ -270,6 +278,7 @@ export default function App() {
       setAnalysis(result);
       setHasAnalysis(true);
       setTaskStatuses({});
+      setReviewDecisions({});
 
       if (execution.mode === "rules-only" && execution.fallbackReason) {
         setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
@@ -281,7 +290,7 @@ export default function App() {
         ? " Source boundaries were not recognizable; this import is represented as one source message with unknown author/time."
         : ` ${snapshot.messages.length} source messages recognized.`) + describeImportWarnings(snapshot);
       const inferenceNote = execution.fallbackReason
-        ? `WebGPU unavailable; rules-only fallback completed (${execution.fallbackReason})`
+        ? `Local AI unavailable; rules-only fallback completed (${execution.fallbackReason})`
         : execution.mode === "rules-only"
           ? "Rules-only analysis completed; WebLLM was not loaded"
           : usedCachedResult
@@ -319,6 +328,33 @@ export default function App() {
 
   function changeTaskStatus(id, nextStatus) {
     setTaskStatuses((current) => updateTaskStatus(current, id, nextStatus));
+  }
+
+  function promoteReviewItem(candidate) {
+    const result = promoteReviewCandidate(analysis.actions, candidate);
+    if (result.duplicate) {
+      setAnalysisStatus({ type: "warning", message: "This source is already represented by an active task. No duplicate was created." });
+      return;
+    }
+
+    const reviewedAt = new Date().toISOString();
+    const taskId = result.actions[result.actions.length - 1].id;
+    setAnalysis((current) => {
+      const latest = promoteReviewCandidate(current.actions, candidate);
+      return latest.duplicate ? current : { ...current, actions: latest.actions };
+    });
+    setTaskStatuses((statuses) => updateTaskStatus(statuses, taskId, "confirmed"));
+    setReviewDecisions((decisions) => ({
+      ...decisions,
+      [candidate.id]: { decision: "promoted", reviewedAt },
+    }));
+    setAnalysisStatus({ type: "success", message: "Candidate promoted by you. The original evidence was preserved; extracted owner and deadline suggestions remain unverified." });
+  }
+
+  function rejectReviewItem(candidate) {
+    const reviewedAt = new Date().toISOString();
+    setReviewDecisions((decisions) => rejectReviewCandidate(decisions, candidate.id, reviewedAt));
+    setAnalysisStatus({ type: "success", message: "Candidate rejected by you. It was removed from active review and was not marked completed." });
   }
 
   function showSourceInInput(reference) {
@@ -452,13 +488,13 @@ export default function App() {
               </div>
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
                 <input ref={fileInputRef} type="file" accept=".txt,.log,text/plain" className="sr-only" aria-label="Choose a local .txt or .log chat file" disabled={isAnalyzing} onChange={(event) => { handleLocalFile(event.target.files?.[0]); event.target.value = ""; }} />
-                <div className="flex flex-col items-center justify-center gap-2 text-center sm:flex-row sm:text-left"><span className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", isDragging ? "bg-cyan-300 text-slate-950" : "bg-slate-900 text-cyan-200 ring-1 ring-slate-700")}><Upload size={21} aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-200">Drop a .txt or .log file here</p><p className="mt-1 text-xs leading-5 text-slate-400">Read locally in the browser · 5 MB file limit</p>{loadedFileName && <p className="mt-1 truncate text-xs font-semibold text-emerald-300">Loaded: {loadedFileName}</p>}</div><button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"><FileText size={14} aria-hidden="true" /> Browse files</button></div>
+                <div className="flex flex-col items-center justify-center gap-2 text-center sm:flex-row sm:text-left"><span className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", isDragging ? "bg-cyan-300 text-slate-950" : "bg-slate-900 text-cyan-200 ring-1 ring-slate-700")}><Upload size={21} aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-200">Drop a .txt or .log file here</p><p className="mt-1 text-xs leading-5 text-slate-400">Read locally in the browser · 60,000-character limit · 5 MB maximum file size</p>{loadedFileName && <p className="mt-1 truncate text-xs font-semibold text-emerald-300">Loaded: {loadedFileName}</p>}</div><button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"><FileText size={14} aria-hidden="true" /> Browse files</button></div>
                 {fileStatus.message && <p className={cx("mt-3 rounded-lg px-3 py-2 text-xs leading-5", fileStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={fileStatus.type === "error" ? "alert" : "status"} aria-live="polite">{fileStatus.message}</p>}
               </div>
               <label htmlFor="chat-log" className="mb-2 block text-sm font-semibold text-slate-200">Chat log</label>
               <textarea ref={chatTextareaRef} id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span>{chatText.length.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
-              <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span className={chatText.length > MAX_ANALYSIS_CHARACTERS ? "font-semibold text-rose-200" : ""}>{chatText.length.toLocaleString()} / {MAX_ANALYSIS_CHARACTERS.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
+              <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || chatText.length > MAX_ANALYSIS_CHARACTERS || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
                 {isAnalyzing ? "Analyzing locally…" : useLocalModel ? (modelState.state === "ready" ? "Analyze with on-device AI" : "Load model & analyze") : "Run rules-only analysis"}
               </button>
@@ -493,7 +529,7 @@ export default function App() {
                     {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
                     {possibleCount > 0 && <p className="rounded-lg border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100" role="note">{possibleCount} of {analysis.actions.length} task{analysis.actions.length === 1 ? " is" : "s are"} marked <strong>Possible · review</strong>: the wording suggests a task but the evidence is weaker (an implied request, no named deliverable, or a suggestion). Confirm or reject each one.</p>}
                     {filteredActions.length ? <div className="space-y-2">{filteredActions.map((task) => { const status = getTaskStatus(taskStatuses, task.id); return <TaskCard key={task.id} task={task} status={status} onShowSource={showSourceInInput} onChangeStatus={changeTaskStatus} />; })}</div> : <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />}
-                    <ReviewQueue items={analysis.reviewQueue || []} onShowSource={showSourceInInput} />
+                    <ReviewQueue items={analysis.reviewQueue || []} decisions={reviewDecisions} onShowSource={showSourceInInput} onPromote={promoteReviewItem} onReject={rejectReviewItem} />
                     {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review changes last for this page session.</p>}</>}</div>}
 
                   {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Priority view is waiting" description="Run local analysis to identify candidate tasks and their supporting signals." /> : <>

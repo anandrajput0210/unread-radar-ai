@@ -243,8 +243,8 @@ test("Cohen's kappa and candidate-discovery agreement", () => {
   assert.equal(d.onlyOneAnnotatorShare, 0.6);
 });
 
-// ---- 8. Known extraction gap surfaced by the new scorer (documented, not fixed here) -------------------
-test("known gap: a pronoun-object commitment after a named assignment becomes a second task", { todo: "extraction is frozen during evaluation-infrastructure work; see docs" }, () => {
+// ---- 8. Regression: pronoun-object acknowledgement stays linked to its named assignment ---------------
+test("pronoun-object acknowledgement after a named assignment does not create a duplicate task", () => {
   const chats = loadSplit(root, "schema");
   const c = scoreSplitV2(chats.filter((x) => x.id === "s-ack-update"), { bootstrap: false }).lenient.counts;
   assert.equal(c.fp, 0, "an acknowledgement must update the existing task, not create another");

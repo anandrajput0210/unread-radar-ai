@@ -30,6 +30,19 @@ you have read) stops being blind. Keep it in a private location, copy it in loca
 `npm run bench:holdout`, and write a fresh one when it has been inspected. Without it, the holdout
 regression check is skipped.
 
+## Independent holdout annotation workflow
+
+The repository does not contain a real-world holdout, and no independent human-annotation results are claimed.
+To collect one safely:
+
+1. Obtain authorized, de-identified conversation exports and keep raw holdout files outside this repository.
+2. Give two independent annotators the schema in this guide, plus the exact source text. Do not let them see extractor output.
+3. Annotators record gold task text, owner basis, deadline, lifecycle end state, condition state, evidence message, and lifecycle events.
+4. Resolve disagreements by comparing only the source text and annotation rules. Record the final gold value and the disagreement resolution, not one annotator's label as an automatic default.
+5. Place the agreed `.chat` files in `benchmark/data/holdout/` only on the evaluation machine. That directory is git-ignored and must not be copied into public repositories.
+6. Run `npm run bench:holdout -- --v2` to score strict and lenient modes. Report only metrics with a non-zero denominator; write `N/A (n=0)` for absent eligible examples.
+7. Do not inspect misses and then alter development code or fixtures for the same holdout. A holdout whose misses are reviewed is burned and must be replaced.
+
 ## Ratchet rules (`npm test`)
 Precision, recall, owner, deadline and lifecycle accuracy may not fall more than 0.05 below the saved
 baseline; false positives and the duplicate rate may not rise; evidence validity must be exactly 100%
