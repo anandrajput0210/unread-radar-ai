@@ -102,10 +102,15 @@ export default function App() {
   const activeRunRef = useRef(0);
   const sourceNavigationRef = useRef(0);
   const legacyCleanupAttemptedRef = useRef(false);
+  const skipRestoreFingerprintRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!chatText.trim() || hasAnalysis || isAnalyzing) return () => { cancelled = true; };
+
+    if (skipRestoreFingerprintRef.current === fingerprint(chatText)) {
+      return () => { cancelled = true; };
+    }
 
     const storage = getLocalStorage();
     if (!storage) {
@@ -287,6 +292,7 @@ export default function App() {
   }
 
   function handleTextChange(value) {
+    skipRestoreFingerprintRef.current = null;
     setChatText(value);
     setLoadedFileName("");
     setFileStatus({ type: "", message: "" });
@@ -340,6 +346,7 @@ export default function App() {
           return;
         }
         setChatText(reader.result);
+        skipRestoreFingerprintRef.current = null;
         setLoadedFileName(file.name);
         resetAnalysis();
         setFileStatus({ type: "success", message: `Loaded ${file.name} locally. Choose an analysis mode when ready.` });
@@ -586,6 +593,7 @@ export default function App() {
   }
 
   function startFresh() {
+    skipRestoreFingerprintRef.current = fingerprint(chatText);
     resetAnalysis();
     setRestoredSession(null);
   }
