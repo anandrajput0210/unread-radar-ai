@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Badge } from "./ui/Badge.jsx";
-import { PAST_DUE_LABEL, buildCatchUpBrief, listSpeakers } from "../lib/views/catchUpBrief.js";
+import { PAST_DUE_LABEL, buildCatchUpBrief, hasGroundedOwner, listSpeakers } from "../lib/views/catchUpBrief.js";
 
 function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses }) {
   if (!tasks.length) return null;
@@ -14,14 +14,21 @@ function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses })
         <article key={task.id} className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3">
           <p className="text-sm leading-5 text-slate-100">{task.text}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <Badge tone={tone}>{task.owner || "No owner stated"}</Badge>
+            <Badge tone={tone}>{hasGroundedOwner(task) ? task.owner : "Owner not established"}</Badge>
+            {task.outcome === "possible" && <Badge tone="amber">Extractor: possible</Badge>}
+            {task.humanReviewStatus === "promoted"
+              ? <Badge tone="green">Accepted for tracking by you</Badge>
+              : statuses?.[task.id] === "confirmed"
+                ? <Badge tone="green">Confirmed by you</Badge>
+                : statuses?.[task.id] === "in-progress"
+                  ? <Badge tone="blue">Marked in progress by you</Badge>
+                  : null}
             {task.dueDate && <span>Due: {task.dueDate}{task.resolvedDueDate ? ` (${task.resolvedDueDate})` : ""}</span>}
             {pastDueIds.has(task.id) && <Badge tone="red">{PAST_DUE_LABEL}</Badge>}
-            {statuses?.[task.id] === "in-progress" && <Badge tone="blue">Marked in progress by you</Badge>}
             {(task.lifecycleStatus === "blocked" || task.lifecycleStatus === "delayed") && <Badge tone="amber">{task.lifecycleStatus}</Badge>}
           </div>
           {task.sourceEvidence?.quote && (
-            <button type="button" onClick={() => onShowSource(task.sourceEvidence)} className="mt-1.5 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100">
+            <button type="button" onClick={() => onShowSource(task.sourceEvidence, task.sourceReferenceStatus)} className="mt-1.5 text-[11px] font-bold text-cyan-200 underline decoration-cyan-200/40 underline-offset-2 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
               Show original in chat
             </button>
           )}
@@ -60,13 +67,13 @@ export function CatchUpBrief({ actions, snapshot, statuses, me, onChangeMe, asOf
       {brief.needsIdentity && <p className="text-xs text-amber-200">Choose who you are to see what is assigned to you. Until then, no task is shown as yours.</p>}
       {brief.identityNotInChat && <p className="text-xs text-amber-200">The person you chose does not speak in this chat, so nothing is shown as yours.</p>}
       {asOf && !brief.asOfValid && <p className="text-xs text-amber-200">That date is not valid, so past-due checks are off.</p>}
-      <p className="text-xs text-slate-400">{brief.counts.open} open · {brief.counts.done} closed · {brief.counts.pastDue} past due as of {brief.asOfValid ? asOf : "(no date)"}. Past due means a stated deadline has passed and no completion message was found in this chat. It does not mean the work was missed.</p>
+      <p className="text-xs text-slate-400">{brief.counts.open} open · {brief.counts.done} closed · {brief.counts.pastDue} past due as of {brief.asOfValid ? asOf : "(no date)"}. Past due means a stated deadline has passed and no completion message was found in this chat. The work may have been completed outside this conversation.</p>
       {empty && <p className="text-xs text-slate-400">Nothing open to catch up on.</p>}
       <Group title="Assigned to you" tasks={g.assignedToYou} tone="blue" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Might be you" hint="The owner name could match more than one person in this chat." tasks={g.mightBeYou} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Assigned to others" tasks={g.assignedToOthers} tone="slate" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Assigned" hint="Pick who you are above to split these into yours and others'." tasks={g.assigned} tone="slate" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
-      <Group title="Nobody owns it yet" tasks={g.noOwner} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
+      <Group title="Owner not established" tasks={g.noOwner} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Needs a human look" hint="Possible tasks. Not counted as assigned to anyone." tasks={g.needsReview} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
     </div>
   );

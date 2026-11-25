@@ -1,8 +1,8 @@
 # ProtocolX Vibe Coding Development Log: Unread Radar AI
 
 ## 1. Project Overview
-- **Problem Statement:** Inboxes and workspace communication channels are cluttered with overwhelming chat message logs, leading to missed dependencies, deadlines, and critical operational instructions.
-- **Solution:** `Unread Radar AI`—a hyper-optimized, 100% local-first priority engineering platform that processes arbitrary, unformatted conversation streams completely within the browser sandbox with zero server dependencies or third-party cloud data extraction.
+- **Problem Statement:** Chat exports can be difficult to review for tasks, owners, deadlines, and lifecycle updates.
+- **Solution:** `Unread Radar AI` is a browser-local chat review tool. Deterministic rules run by default; optional Qwen inference runs on-device only after explicit opt-in.
 - **Key Features:**
   - Client-side text parsing framework extracting user tokens and deadlines.
   - Interactive file drop manager reading raw `.txt` and `.log` formats instantly via FileReader API.
@@ -10,10 +10,10 @@
   - One-click executive brief compiler downloading a local Markdown report.
 
 ## 2. Tech Stack & Architecture
-- **Framework:** React 18 / Vite 5 (Client-side single-page architecture).
+- **Framework:** React 18 / Vite 6 (Client-side single-page architecture).
 - **Styling:** Tailwind CSS 4 (Utility-first responsive design).
 - **Icons:** Lucide React icons asset set.
-- **Data Custody Model:** 100% Local Sandbox Processing (Zero API endpoint requests, completely network independent).
+- **Data Custody Model:** Chat analysis is local. Optional WebLLM use downloads model assets after opt-in; network independence is not claimed.
 
 ## 3. AI Code Generation Log
 - **Prompt Used:** *"Generate a single, highly modular, pristine, and fully functional React component file (`src/App.jsx`) using Tailwind CSS and Lucide React icons. The application must run 100% client-side to honor the local-first requirement... Include Chat Log Input Area, Local-First Processing Engine, Polished Dashboard Workspace, and error-free rendering."*
@@ -47,9 +47,8 @@
 - **Verification Status:** Verified functional layout via live rendering tests.
 
 ## 6. Testing & Technical Improvements
-- **Security Check:** Evaluated network execution inside browser DevTools tab. Verified that pasting high-volume data streams triggers zero outbound HTTP fetch requests, confirming total compliance with strict privacy criteria.
-- **Performance Test:** Dynamic regex character parser maps lines in less than 2 milliseconds, outperforming server-side API processing runtimes by 99%.
+- **Security and performance:** This log does not contain a reproducible security audit or benchmark supporting the previous zero-network, sub-2ms, or 99%-faster statements. Do not treat those statements as verified.
 
 ## 7. Final Summary
 - **AI Tools Leveraged:** Google Gemini Architecture (Systems Logic), v0 by Vercel (Front-end Design framework).
-- **Completed Deliverables:** A fully tracked, error-free local-first software application deployed live on the production web environment at `https://vercel.app`.
+- **Completed Deliverables:** A browser-local React/Vite application. No production deployment URL or production smoke-test evidence is verified in this repository.

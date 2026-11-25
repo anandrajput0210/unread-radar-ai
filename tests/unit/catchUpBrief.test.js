@@ -5,6 +5,7 @@ import { buildCatchUpBrief, listSpeakers, ownerMatch } from "../../src/lib/views
 const task = (over = {}) => ({
   id: over.id ?? "t1", text: "send the report", owner: null, outcome: "confirmed",
   lifecycleStatus: "open", dueDate: "Friday", dueDateStatus: "explicit", resolvedDueDate: null, ...over,
+  classification: over.classification ?? (over.owner ? "assigned_task" : undefined),
 });
 const ids = (list) => list.map((t) => t.id);
 
@@ -51,12 +52,42 @@ test("a possible task is never counted as waiting on anyone", () => {
   assert.equal(b.groups.needsReview.length, 1);
 });
 
+test("user-accepted possible tasks leave human review without gaining an owner", () => {
+  const b = buildCatchUpBrief([
+    task({ id: "unreviewed", owner: null, outcome: "possible" }),
+    task({ id: "promoted", owner: null, outcome: "possible", humanReviewStatus: "promoted" }),
+    task({ id: "confirmed", owner: null, outcome: "possible" }),
+    task({ id: "in-progress", owner: null, outcome: "possible" }),
+  ], {
+    me: "Me",
+    asOf: "2026-11-10",
+    speakers: ["Me"],
+    statuses: { confirmed: "confirmed", "in-progress": "in-progress" },
+  });
+
+  assert.deepEqual(ids(b.groups.needsReview), ["unreviewed"]);
+  assert.deepEqual(ids(b.groups.noOwner), ["promoted", "confirmed", "in-progress"]);
+  assert.equal(b.groups.assignedToYou.length, 0);
+  assert.equal(b.groups.assignedToOthers.length, 0);
+  assert.equal(b.counts.open, 4);
+});
+
 test("no identity chosen: owned tasks are not assigned to 'you' or 'others'", () => {
   const b = buildCatchUpBrief([task({ owner: "Dev" })], { me: null, asOf: "2026-11-10", speakers: ["Dev"] });
   assert.equal(b.needsIdentity, true);
   assert.equal(b.groups.assignedToYou.length, 0);
   assert.equal(b.groups.assignedToOthers.length, 0);
   assert.equal(b.groups.assigned.length, 1);
+});
+
+test("owner without structured assignment provenance is not placed under a person", () => {
+  const b = buildCatchUpBrief([
+    task({ owner: "Priya", classification: "unclassified_candidate" }),
+  ], { me: "Priya", asOf: "2026-11-10", speakers: ["Priya"] });
+
+  assert.equal(b.groups.assignedToYou.length, 0);
+  assert.equal(b.groups.assignedToOthers.length, 0);
+  assert.deepEqual(ids(b.groups.noOwner), ["t1"]);
 });
 
 test("ambiguous owner name goes to 'might be you', not 'waiting on you'", () => {

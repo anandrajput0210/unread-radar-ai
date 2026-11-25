@@ -34,7 +34,8 @@ The cross-conversation integration tests also pass the three fixture chats throu
 
 A separate injected-model test verifies a safety rule: if a model proposes a task from a unique exact quotation but also proposes an owner and calendar date that are not grounded in the quoted source, the application discards those unsupported owner/date claims and presents the suggestion as low-priority and unverified.
 
-## Milestone D
-See `benchmark/README.md`. Dev now has 40+ chats and a fresh sealed holdout (24 chats, incl. no-task cases) covering English,
-Hinglish, Devanagari, collective, negation, deadlines, lifecycle and ambiguity. Collective
-statements live in `src/lib/extraction/collective.js`.
+## Current split availability
+
+The committed V2 report is for the synthetic development split only. The benchmark loader reads `.chat` files from `benchmark/data/<split>/`; the private `benchmark/data/holdout/` directory is git-ignored and is not present in this checkout. The tracked flat `benchmark/data/holdout-v0.chats.txt` file is not loaded by that split loader and is not evidence of an available sealed evaluation set. No independent real-world labelled holdout or results are included.
+
+Do not report a sealed-holdout result unless an authorized, still-blind set is supplied outside version control and its annotation process is documented. A synthetic regression score does not establish real-world accuracy.

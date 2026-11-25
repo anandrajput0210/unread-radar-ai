@@ -4,6 +4,11 @@ import { TASK_STATUS_LABELS, getTaskStatus } from "../views/taskWorkflow.js";
 import { MODEL_ID } from "../ai/localAiEngine.js";
 import { buildPriorityView } from "../views/priorityView.js";
 
+function taskReviewLabel(task, status) {
+  if (status === "needs-review" && task.humanReviewStatus === "promoted") return "Promoted by you";
+  return TASK_STATUS_LABELS[status];
+}
+
 /** Builds the Markdown executive brief from an analysis result. Pure: no DOM access. */
 export function buildExecutiveBrief({ analysis, taskStatuses, loadedFileName }) {
   const lineCount = analysis.lineCount;
@@ -38,7 +43,12 @@ export function buildExecutiveBrief({ analysis, taskStatuses, loadedFileName }) 
         const supporting = task.supportingEvidence?.length
           ? task.supportingEvidence.map((detail) => `\n  - ${detail.kind || "Related context"} (${detail.sourceReferenceStatus || "unverified"}): ${detail.evidence?.quote || detail.text}`).join("")
           : "";
-        return `- **${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, task.id)]}** · **${task.urgency}** — ${task.text}${task.outcome === "possible" ? ` · **Possible task — review**${task.outcomeReason ? ` (${task.outcomeReason})` : ""}` : ""}${due}${owner}${condition}${confidence}${evidence}${supporting}`;
+        const reviewStatus = getTaskStatus(taskStatuses, task.id);
+        const needsReview = reviewStatus === "needs-review" && task.humanReviewStatus !== "promoted";
+        const extractionOutcome = task.outcome === "possible"
+          ? ` · **Extractor outcome: possible${needsReview ? " — review needed" : ""}**${task.outcomeReason ? ` (${task.outcomeReason})` : ""}`
+          : "";
+        return `- **${taskReviewLabel(task, reviewStatus)}** · **${task.urgency}** — ${task.text}${extractionOutcome}${due}${owner}${condition}${confidence}${evidence}${supporting}`;
       })
     : ["- No action items were extracted."];
   const urgentLines = analysis.urgentRows.length
@@ -79,7 +89,7 @@ export function buildExecutiveBrief({ analysis, taskStatuses, loadedFileName }) 
     `- **Supporting signals attached to task messages:** ${prioritySummary.linkedSignalCount} (not counted again as separate priority items)`,
     `- **High-priority unique items:** ${prioritySummary.counts.High}`,
     `- **High-urgency source rows:** ${analysis.urgentRows.length} (${toPercent(analysis.urgentRows.length, lineCount)}%)`,
-    `- **Possible (unconfirmed) tasks:** ${analysis.actions.filter((task) => task.outcome === "possible").length}`,
+    `- **Possible extraction outcomes:** ${analysis.actions.filter((task) => task.outcome === "possible").length}`,
     `- **Action items:** ${analysis.actions.length} (${toPercent(analysis.actions.length, lineCount)}% of rows)`,
     `- **Missed mentions:** ${analysis.mentions.length}`,
     "",
@@ -120,7 +130,14 @@ export function buildCopySummary({ analysis, taskStatuses }) {
     ...analysis.summary.map((item) => `• ${item}`),
     "",
     "ACTION ITEMS",
-    ...analysis.actions.map((item) => `• [${TASK_STATUS_LABELS[getTaskStatus(taskStatuses, item.id)]}] [${item.urgency}] ${item.text}${item.outcome === "possible" ? " [POSSIBLE — review]" : ""} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`),
+    ...analysis.actions.map((item) => {
+      const reviewStatus = getTaskStatus(taskStatuses, item.id);
+      const needsReview = reviewStatus === "needs-review" && item.humanReviewStatus !== "promoted";
+      const extractionOutcome = item.outcome === "possible"
+        ? ` [POSSIBLE extraction outcome${needsReview ? " — review needed" : ""}]`
+        : "";
+      return `• [${taskReviewLabel(item, reviewStatus)}] [${item.urgency}] ${item.text}${extractionOutcome} — ${sourceReferenceLabel(item)}${item.sourceEvidence?.quote ? ` — Exact source: ${item.sourceEvidence.quote}` : item.evidence ? ` — Model excerpt (unverified): ${item.evidence}` : ""}`;
+    }),
     "",
     "DECISIONS",
     ...analysis.decisions.map((item) => `• ${item}`),

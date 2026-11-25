@@ -1,5 +1,34 @@
 # Changelog
 
+## Final cross-phase review corrections — 2026-11-25
+
+- Kept accepted possible extraction outcomes visible as possible while separating human review decisions in task explanations, catch-up grouping, and exports.
+- Removed owner explanations based only on a name appearing in quoted text; owner basis now follows structured task classification and recorded claim/reassignment provenance.
+- Rejected malformed nested persistence records instead of restoring incomplete analysis, review, status, or source metadata.
+- Clarified localStorage exposure and deletion limits, removed unavailable demo/media placeholders, and corrected the benchmark documentation to describe only the active synthetic development split.
+
+## Opt-in local persistence and change comparison — 2026-11-25
+
+- Added off-by-default browser-local persistence for analysis results, human review decisions, selected identity, and source fingerprint metadata.
+- Added exact-fingerprint restore, speaker validation for restored identity, a clear-data action, storage-failure notices, and a five-session/512 KiB record limit.
+- Added a conservative “What changed since last time” comparison for exact evidence and source-message positions, including new tasks, lifecycle resolution, owner changes, and timing changes.
+- Kept raw chat text and full source snapshots out of persisted records; storage remains local to this browser and is not synchronized.
+
+## Trust UI — 2026-11-25
+
+- Added a display-only “Why this task?” panel for owner basis, timing, lifecycle events, exact evidence, and caveats.
+- Added a split task/source view that displays messages from the existing source snapshot and highlights only a valid reference from that snapshot.
+- Kept source-reference validity separate from task meaning, owner attribution, lifecycle, and human review.
+- Kept unknown and ambiguous owners unresolved; contextual timing is labelled as inferred from context.
+- Updated past-due explanation wording to state that the conversation may not contain the completion outcome.
+
+## Presentation and catch-up brief documentation — 2026-11-25
+
+- Added project overview, architecture, examples, limitations, and clearly labelled synthetic regression results to the README.
+- Added one-click English and Hinglish sample conversations for a quick local demonstration.
+- Documented the catch-up brief's identity, assignment, lifecycle, and past-due safeguards.
+- Declared the MIT license and Node.js 20+ requirement in package metadata.
+
 ## Explicit WebLLM opt-in and rules-only default — 2026-11-07
 
 - Rules-only analysis is now the default and does not request WebGPU, import WebLLM, or download model assets.
