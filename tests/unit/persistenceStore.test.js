@@ -10,6 +10,9 @@ import {
   restoreSession,
   saveSession,
 } from "../../src/lib/persistence/store.js";
+import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
+import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
+import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
 
 function fakeStorage({ onSetItem } = {}) {
   const values = new Map();
@@ -46,11 +49,45 @@ function record(text, overrides = {}) {
     fingerprint: fingerprint(text),
     savedAt: "2026-11-25T12:00:00.000Z",
     schemaVersion: SCHEMA_VERSION,
-    analysis: { actions: [{ id: "task-1", text: "Send the report" }] },
-    reviewDecisions: { "candidate-1": { decision: "rejected" } },
+    analysis: {
+      summary: [],
+      actions: [{
+        id: "task-1",
+        text: "Send the report",
+        owner: null,
+        outcome: "confirmed",
+        urgency: "Low",
+        lifecycleEvents: [],
+        sourceEvidence: null,
+        sourceReferenceStatus: "missing",
+      }],
+      reviewQueue: [],
+      decisions: [],
+      deadlines: [],
+      mentions: [],
+      urgentRows: [],
+      alerts: [],
+      lineCount: 1,
+      sourceChunks: 1,
+      modelId: "",
+    },
+    reviewDecisions: { "candidate-1": { decision: "rejected", reviewedAt: "2026-11-25T12:00:00.000Z" } },
     taskStatuses: { "task-1": "completed" },
     selectedIdentity: "Alex",
-    sourceMessageFingerprints: ["message-hash-1"],
+    sourceMessageFingerprints: [fingerprint("source message")],
+    sourceSnapshotId: `sha256:${"a".repeat(64)}`,
+    sourceMessageRanges: [{ startOffset: 0, endOffset: 14 }],
+    ...overrides,
+  };
+}
+
+function evidence(overrides = {}) {
+  return {
+    snapshotId: `sha256:${"a".repeat(64)}`,
+    messageId: `sha256:${"d".repeat(64)}`,
+    startOffset: 0,
+    endOffset: 14,
+    quote: "Source message",
     ...overrides,
   };
 }
@@ -68,6 +105,50 @@ test("loadSession never returns another chat's saved data", () => {
 
   assert.equal(loadSession(storage, fingerprint("chat B")), null);
   assert.equal(loadSession(storage, saved.fingerprint).analysis.actions[0].text, "Send the report");
+});
+
+test("a real rules-only analysis with source metadata remains restorable", async () => {
+  const text = SAMPLE_CHATS.english;
+  const snapshot = await createSourceSnapshot(text);
+  const analysis = await analyzeTextWithRules(text, { sourceSnapshot: snapshot });
+  const messageFingerprints = snapshot.messages.map((message) => fingerprint(JSON.stringify([
+    message.authorRaw || "",
+    message.timestampRaw || "",
+    (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
+  ])));
+  const storage = fakeStorage();
+  const saved = record(text, {
+    fingerprint: fingerprint(text),
+    analysis,
+    sourceSnapshotId: snapshot.snapshotId,
+    sourceMessageFingerprints: messageFingerprints,
+    sourceMessageRanges: snapshot.messages.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })),
+  });
+
+  assert.equal(saveSession(storage, saved).saved, true);
+  assert.equal(loadSession(storage, saved.fingerprint).analysis.actions[0].text, analysis.actions[0].text);
+});
+
+test("a real review candidate with validated source metadata remains restorable", async () => {
+  const text = "[10:00, 02/11/2026] Anita: Don't forget the invoice by Friday";
+  const snapshot = await createSourceSnapshot(text);
+  const analysis = await analyzeTextWithRules(text, { sourceSnapshot: snapshot });
+  const storage = fakeStorage();
+  const saved = record(text, {
+    fingerprint: fingerprint(text),
+    analysis,
+    sourceSnapshotId: snapshot.snapshotId,
+    sourceMessageFingerprints: snapshot.messages.map((message) => fingerprint(JSON.stringify([
+      message.authorRaw || "",
+      message.timestampRaw || "",
+      (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
+    ]))),
+    sourceMessageRanges: snapshot.messages.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })),
+  });
+
+  assert.equal(analysis.reviewQueue.length, 1);
+  assert.equal(saveSession(storage, saved).saved, true);
+  assert.equal(loadSession(storage, saved.fingerprint).analysis.reviewQueue.length, 1);
 });
 
 test("persistence disabled does not call saveSession or touch storage", () => {
@@ -139,14 +220,14 @@ test("saved records retain source identifiers without storing raw chat text", ()
   const storage = fakeStorage();
   const saved = record("private source", {
     rawText: "private source",
-    sourceSnapshotId: "sha256:snapshot-id",
+    sourceSnapshotId: `sha256:${"b".repeat(64)}`,
     sourceMessageRanges: [{ startOffset: 0, endOffset: 12 }],
   });
 
   assert.equal(saveSession(storage, saved).saved, true);
   const stored = JSON.parse([...storage.values.values()][0]);
 
-  assert.equal(stored.sourceSnapshotId, "sha256:snapshot-id");
+  assert.equal(stored.sourceSnapshotId, `sha256:${"b".repeat(64)}`);
   assert.deepEqual(stored.sourceMessageRanges, [{ startOffset: 0, endOffset: 12 }]);
   assert.equal(Object.hasOwn(stored, "rawText"), false);
   assert.equal(JSON.stringify(stored).includes("private source"), false);
@@ -186,11 +267,105 @@ test("saved sessions are capped at five and oldest are dropped", () => {
 
 test("a record over the size limit is not stored", () => {
   const storage = fakeStorage();
+  const validAnalysis = record("large chat").analysis;
   const result = saveSession(storage, record("large chat", {
-    analysis: { text: "x".repeat(1024 * 1024) },
+    analysis: {
+      ...validAnalysis,
+      actions: [{ ...validAnalysis.actions[0], text: "x".repeat(1024 * 1024) }],
+    },
   }));
 
   assert.equal(result.status, "not-saved");
   assert.equal(result.reason, "too-large");
   assert.equal(storage.values.size, 0);
+});
+
+test("malformed nested analysis and review records are rejected before restore", () => {
+  const malformedRecords = [
+    record("missing analysis list", { analysis: { actions: [] } }),
+    record("malformed task", {
+      analysis: {
+        ...record("valid").analysis,
+        actions: [{ id: "task-1", text: 42, owner: null, outcome: "confirmed", urgency: "Low", lifecycleEvents: [] }],
+      },
+    }),
+    record("malformed review", {
+      reviewDecisions: { "candidate-1": { decision: "maybe", reviewedAt: "yesterday" } },
+    }),
+    record("malformed task status", { taskStatuses: { "task-1": "not-a-status" } }),
+    record("malformed source range", { sourceMessageRanges: [{ startOffset: -1, endOffset: 14 }] }),
+    record("malformed timestamp", { savedAt: "not-an-iso-time" }),
+    record("malformed suggested owner", {
+      analysis: {
+        ...record("valid").analysis,
+        actions: [{ ...record("valid").analysis.actions[0], suggestedOwner: 17 }],
+      },
+    }),
+    record("malformed review queue detail", {
+      analysis: {
+        ...record("valid").analysis,
+        reviewQueue: [{
+          id: "candidate-1",
+          text: "Send the report",
+          sourceEvidence: evidence(),
+          sourceReferenceStatus: "valid",
+          missing: "owner",
+        }],
+      },
+    }),
+    record("malformed valid-source finding", {
+      analysis: {
+        ...record("valid").analysis,
+        deadlines: [{
+          id: "deadline-1",
+          text: "Send by Friday",
+          dates: ["Friday"],
+          sourceEvidence: null,
+          sourceReferenceStatus: "valid",
+        }],
+      },
+    }),
+    record("foreign source evidence", {
+      analysis: {
+        ...record("valid").analysis,
+        actions: [{
+          ...record("valid").analysis.actions[0],
+          sourceEvidence: evidence({ snapshotId: `sha256:${"c".repeat(64)}` }),
+          sourceReferenceStatus: "valid",
+        }],
+      },
+    }),
+    record("source evidence outside message ranges", {
+      analysis: {
+        ...record("valid").analysis,
+        actions: [{
+          ...record("valid").analysis.actions[0],
+          sourceEvidence: evidence({ startOffset: 1, endOffset: 15 }),
+          sourceReferenceStatus: "valid",
+        }],
+      },
+    }),
+  ];
+
+  for (const [index, saved] of malformedRecords.entries()) {
+    const storage = fakeStorage();
+    const result = saveSession(storage, saved);
+    assert.equal(result.saved, false, `malformed record ${index} must not be persisted`);
+    assert.equal(result.reason, "invalid-record");
+    assert.equal(storage.values.size, 0);
+  }
+});
+
+test("malformed persisted nested data is ignored by load and list", () => {
+  const storage = fakeStorage();
+  const saved = record("malformed nested chat");
+  assert.equal(saveSession(storage, saved).saved, true);
+  const key = [...storage.values.keys()][0];
+  storage.values.set(key, JSON.stringify({
+    ...saved,
+    analysis: { ...saved.analysis, actions: [{ id: "task-1", text: null }] },
+  }));
+
+  assert.equal(loadSession(storage, saved.fingerprint), null);
+  assert.equal(listSessions(storage).length, 0);
 });

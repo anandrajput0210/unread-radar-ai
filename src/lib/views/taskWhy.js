@@ -27,11 +27,38 @@ function matchingSpeakers(owner, speakers) {
   return exact.length ? exact : matches;
 }
 
-function hasNamedOwner(quote, owner) {
-  const name = String(owner ?? "").trim().replace(/^@/u, "");
-  if (!name) return false;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  return new RegExp(`(?<![\\p{L}\\p{N}])@?${escaped}(?![\\p{L}\\p{N}])`, "iu").test(quote);
+const HUMAN_REVIEW_TEXT = Object.freeze({
+  "needs-review": "Awaiting your review.",
+  confirmed: "Confirmed by you.",
+  "in-progress": "Marked in progress by you.",
+  completed: "Marked completed by you; conversation lifecycle remains separate.",
+  rejected: "Rejected by you; the extraction outcome remains separate.",
+  promoted: "Accepted for tracking by you.",
+});
+
+function buildHumanReview(task, reviewStatus) {
+  const status = reviewStatus && reviewStatus !== "needs-review"
+    ? reviewStatus
+    : task?.humanReviewStatus === "promoted" ? "promoted" : "needs-review";
+  return {
+    status: Object.hasOwn(HUMAN_REVIEW_TEXT, status) ? status : "needs-review",
+    text: HUMAN_REVIEW_TEXT[status] || HUMAN_REVIEW_TEXT["needs-review"],
+  };
+}
+
+function buildExtraction(task) {
+  const status = task?.outcome === "confirmed" || task?.outcome === "possible"
+    ? task.outcome
+    : "unknown";
+  return {
+    status,
+    label: status === "possible"
+      ? "Possible candidate"
+      : status === "confirmed" ? "Confirmed extraction" : "No extraction outcome recorded",
+    reason: typeof (task?.extractionOutcomeReason || task?.outcomeReason) === "string"
+      ? task.extractionOutcomeReason || task.outcomeReason
+      : null,
+  };
 }
 
 function sourceOffset(reference) {
@@ -60,6 +87,18 @@ function speakerAt(messages, messageIndex) {
 function buildOwnerBasis(task, speakers) {
   const owner = typeof task?.owner === "string" ? task.owner.trim() : "";
   if (!owner) {
+    if (task?.classification === "collective_task") {
+      return {
+        status: "collective",
+        reason: "This is a collective obligation; no individual owner was established.",
+      };
+    }
+    if (task?.classification === "unassigned_request" || task?.classification === "unassigned_action") {
+      return {
+        status: "unassigned-request",
+        reason: "The extracted request or action does not name an individual owner.",
+      };
+    }
     return {
       status: "unknown",
       reason: "No owner could be established from this chat.",
@@ -80,28 +119,34 @@ function buildOwnerBasis(task, speakers) {
     };
   }
 
-  const quote = typeof task.sourceEvidence?.quote === "string" ? task.sourceEvidence.quote : "";
   const reassignedToOwner = (Array.isArray(task.lifecycleEvents) ? task.lifecycleEvents : [])
     .some((event) => event?.type === "reassigned" && matchesOwner(owner, event.newOwner));
-  if (hasNamedOwner(quote, owner) || reassignedToOwner) {
-    return {
-      status: "named-in-request",
-      reason: reassignedToOwner
-        ? "The conversation explicitly names this owner in a reassignment event."
-        : "The request explicitly names this owner.",
-    };
-  }
-
-  if (task.ownerSource === "implied_addressee" || task.ownerSource === "implied-addressee") {
+  if (task.ownerBasis === "implied-addressee"
+    || task.ownerSource === "implied_addressee"
+    || task.ownerSource === "implied-addressee") {
     return {
       status: "implied-addressee",
       reason: "The extracted task identifies this person as its implied addressee.",
     };
   }
 
+  if (reassignedToOwner || task.ownerSource === "conversation_reassignment") {
+    return {
+      status: "named-in-request",
+      reason: "The conversation records this owner in a reassignment event.",
+    };
+  }
+
+  if (task.ownerBasis === "named-in-request" || task.classification === "assigned_task") {
+    return {
+      status: "named-in-request",
+      reason: "The extractor classified this as an assigned task with a named owner.",
+    };
+  }
+
   return {
-    status: "implied-addressee",
-    reason: "The extracted task records this owner, but no more specific basis is available.",
+    status: "unknown",
+    reason: "The extractor recorded an owner, but its assignment basis is not recorded.",
   };
 }
 
@@ -185,9 +230,11 @@ function buildTimeline(task, messages) {
     .map(({ offset, ...event }) => event);
 }
 
-export function buildTaskWhy(task, { messages = [], speakers = [] } = {}) {
+export function buildTaskWhy(task, { messages = [], speakers = [], reviewStatus } = {}) {
   const sourceMessages = Array.isArray(messages) ? messages : [];
   const speakerList = Array.isArray(speakers) ? speakers.filter((name) => typeof name === "string") : [];
+  const humanReview = buildHumanReview(task, reviewStatus);
+  const extraction = buildExtraction(task);
   const evidenceReference = task?.sourceEvidence || null;
   const evidence = {
     quote: typeof evidenceReference?.quote === "string" ? evidenceReference.quote : null,
@@ -197,13 +244,17 @@ export function buildTaskWhy(task, { messages = [], speakers = [] } = {}) {
       : evidenceReference ? "unverified" : "missing",
   };
   const caveats = [];
-  if (task?.outcome === "possible") caveats.push("Possible task - not confirmed");
+  if (extraction.status === "possible" && humanReview.status === "needs-review") {
+    caveats.push("Possible task - not confirmed");
+  }
   const ownerBasis = buildOwnerBasis(task, speakerList);
   if (ownerBasis.status === "ambiguous") caveats.push("Owner unclear");
   if (evidence.referenceStatus !== "valid") caveats.push("Source reference could not be verified");
 
   return {
     ownerBasis,
+    extraction,
+    humanReview,
     timing: buildTiming(task),
     timeline: buildTimeline(task, sourceMessages),
     evidence,

@@ -23,6 +23,12 @@ export function isRealIsoDate(value) {
 }
 const CLOSED_LIFECYCLE = new Set(["completed", "cancelled"]);
 const CLOSED_MANUAL = new Set(["completed", "rejected"]);
+const GROUNDED_OWNER_SOURCES = new Set([
+  "claimed_by_commitment",
+  "claimed_by_progress",
+  "unique_acknowledgement",
+  "conversation_reassignment",
+]);
 
 export const PAST_DUE_LABEL = "Past due · no completion message found in this chat";
 
@@ -69,6 +75,20 @@ function isClosed(task, statuses) {
   return CLOSED_LIFECYCLE.has(task.lifecycleStatus) || CLOSED_MANUAL.has(statuses?.[task.id]);
 }
 
+function hasHumanReviewed(task, statuses) {
+  return task.humanReviewStatus === "promoted"
+    || statuses?.[task.id] === "confirmed"
+    || statuses?.[task.id] === "in-progress";
+}
+
+export function hasGroundedOwner(task) {
+  return typeof task?.owner === "string"
+    && task.owner.trim().length > 0
+    && (task.classification === "assigned_task"
+      || task.classification === "self_commitment"
+      || GROUNDED_OWNER_SOURCES.has(task.ownerSource));
+}
+
 function isPastDue(task, asOf) {
   if (!asOf) return false;
   if (task.dueDateStatus !== "explicit") return false;
@@ -93,8 +113,11 @@ export function buildCatchUpBrief(actions, { me = null, asOf = null, statuses = 
 
   for (const task of tasks) {
     if (isClosed(task, statuses)) { done += 1; continue; }
-    if (task.outcome !== "confirmed") { groups.needsReview.push(task); continue; }
-    if (!task.owner) { groups.noOwner.push(task); continue; }
+    if (task.outcome !== "confirmed" && !hasHumanReviewed(task, statuses)) {
+      groups.needsReview.push(task);
+      continue;
+    }
+    if (!hasGroundedOwner(task)) { groups.noOwner.push(task); continue; }
     if (!hasMe) { groups.assigned.push(task); continue; }
     const match = ownerMatch(task.owner, me, speakers);
     if (match === "yes") groups.assignedToYou.push(task);

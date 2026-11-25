@@ -1,5 +1,12 @@
 # Changelog
 
+## Final cross-phase review corrections — 2026-11-25
+
+- Kept accepted possible extraction outcomes visible as possible while separating human review decisions in task explanations, catch-up grouping, and exports.
+- Removed owner explanations based only on a name appearing in quoted text; owner basis now follows structured task classification and recorded claim/reassignment provenance.
+- Rejected malformed nested persistence records instead of restoring incomplete analysis, review, status, or source metadata.
+- Clarified localStorage exposure and deletion limits, removed unavailable demo/media placeholders, and corrected the benchmark documentation to describe only the active synthetic development split.
+
 ## Opt-in local persistence and change comparison — 2026-11-25
 
 - Added off-by-default browser-local persistence for analysis results, human review decisions, selected identity, and source fingerprint metadata.

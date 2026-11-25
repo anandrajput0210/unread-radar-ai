@@ -2,10 +2,9 @@
 
 **Turn a long chat export into an evidence-linked catch-up brief, locally in your browser.**
 
-> Live demo: [Add a deployment URL here](#)
+> **Live demo:** Not configured in this repository.
 >
-> Screenshot placeholder: add a current application screenshot here.
-> GIF placeholder: add a short local-analysis and catch-up-brief recording here.
+> **Screenshots/GIF:** None are included; no visual evidence is claimed.
 
 ## What it does
 
@@ -107,7 +106,7 @@ Run `npm run bench:v2` to reproduce these results for the current branch. These 
 
 Conversation parsing and analysis run in the browser. Review the source and verify each interpretation before relying on it. Use only chat exports you are authorized to process. Do not commit private chats or holdout data.
 
-Saving analysis is off by default. When enabled, the app stores up to five analysis records in this browser's `localStorage`: extracted results (including quoted evidence), review decisions and task statuses, selected identity, a source fingerprint, message fingerprints/ranges, and save/schema metadata. It does not store raw chat text or the full source snapshot, and it does not sync data to another device. Turning saving off stops new writes but does not delete prior records; use **Clear saved data** to remove all records written by this feature. Storage failures leave the analysis available in memory.
+Saving analysis is off by default. When enabled, the app stores up to five analysis records in this browser's `localStorage`: extracted results (including quoted evidence), review decisions and task statuses, selected identity, a source fingerprint, message fingerprints/ranges, and save/schema metadata. It does not store raw chat text or the full source snapshot, and it does not sync data to another device. `localStorage` is not encrypted; data is accessible to this site's scripts and people or software with access to the browser profile. Turning saving off stops new writes but does not delete prior records; use **Clear saved data** to remove all records written by this feature. Clearing is not a guarantee of forensic erasure. Storage failures leave the analysis available in memory.
 
 ## Project documentation
 

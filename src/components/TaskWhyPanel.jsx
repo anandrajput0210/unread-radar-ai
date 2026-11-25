@@ -7,6 +7,8 @@ const OWNER_BASIS_LABELS = Object.freeze({
   "named-in-request": "Named in request",
   "claimed-by-speaker": "Claimed by speaker",
   "implied-addressee": "Implied addressee",
+  collective: "Collective obligation",
+  "unassigned-request": "Unassigned request",
   unknown: "Unknown",
   ambiguous: "Ambiguous",
 });
@@ -22,13 +24,17 @@ function messageReference(messages, messageIndex) {
   };
 }
 
-export function TaskWhyPanel({ task, messages, speakers, onShowSource }) {
+export function TaskWhyPanel({ task, messages, speakers, reviewStatus, onShowSource }) {
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const context = useContext(TaskWhyDataContext);
   const sourceMessages = messages ?? context.messages;
   const sourceSpeakers = speakers ?? context.speakers;
-  const why = buildTaskWhy(task, { messages: sourceMessages, speakers: sourceSpeakers });
+  const why = buildTaskWhy(task, {
+    messages: sourceMessages,
+    speakers: sourceSpeakers,
+    reviewStatus,
+  });
 
   return (
     <section className="rounded-xl border border-slate-700/50 bg-slate-950/25">
@@ -47,6 +53,16 @@ export function TaskWhyPanel({ task, messages, speakers, onShowSource }) {
             Owner basis · {OWNER_BASIS_LABELS[why.ownerBasis.status]}
           </h4>
           <p className="mt-1 text-xs leading-5 text-slate-200">{why.ownerBasis.reason}</p>
+        </section>
+
+        <section aria-label="Extraction and human review">
+          <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Extractor outcome</h4>
+          <p className="mt-1 text-xs leading-5 text-slate-200">
+            {why.extraction.label}
+            {why.extraction.reason ? ` · ${why.extraction.reason}` : ""}
+          </p>
+          <h4 className="mt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Human review</h4>
+          <p className="mt-1 text-xs leading-5 text-slate-200">{why.humanReview.text}</p>
         </section>
 
         <section aria-label="Timing">

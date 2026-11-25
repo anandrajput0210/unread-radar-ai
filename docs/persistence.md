@@ -13,6 +13,8 @@ When enabled, each saved record contains:
 
 Records are held in this browser's `localStorage`, with a maximum of five sessions and a 512 KiB limit per record. The raw chat text and full source snapshot are not stored. Message fingerprints use a deterministic non-cryptographic hash; they are comparison keys, not a security or identity mechanism. The app does not sync saved data to other devices.
 
+Browser `localStorage` is not encrypted. Data can be read by scripts running for this site and by anyone or software with access to the browser profile or its site-storage tools. Do not enable saving on a shared or unmanaged device for sensitive conversations.
+
 Storage access can be blocked or run out of space. In that case the app reports that data was not saved and continues with the in-memory analysis.
 
 ## Restore and chat identity
@@ -23,4 +25,4 @@ For an appended export, the app may compare it with a saved shorter export when 
 
 ## Turn off or delete saved data
 
-Turning the toggle off stops new saves but does not delete records already saved. Select **Clear saved data** to remove all keys written by this feature from this browser's localStorage; unrelated site-storage entries are left untouched. Clearing also turns saving off. Browser-managed model assets and explicit user downloads are separate from this feature's saved records.
+Turning the toggle off stops new saves but does not delete records already saved. Select **Clear saved data** to remove all keys written by this feature from this browser's localStorage; unrelated site-storage entries are left untouched. Clearing also turns saving off. This removes the feature's keys but cannot guarantee forensic erasure from browser-managed storage, backups, or device media. Browser-managed model assets and explicit user downloads are separate from this feature's saved records.

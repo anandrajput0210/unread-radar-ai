@@ -49,6 +49,65 @@ test("an owner matching two speakers is shown as ambiguous without naming either
   assert.doesNotMatch(result.ownerBasis.reason, /Alex Johnson|Alex Chen/u);
 });
 
+test("a name in source text is not ownership provenance by itself", () => {
+  const result = buildTaskWhy({
+    text: "Review the report",
+    owner: "Priya",
+    classification: "unclassified_candidate",
+    sourceEvidence: { quote: "Rahul asked whether Priya had seen the report." },
+  }, {
+    messages: [],
+    speakers: ["Rahul", "Priya"],
+  });
+
+  assert.equal(result.ownerBasis.status, "unknown");
+  assert.match(result.ownerBasis.reason, /basis is not recorded|No owner could be established/u);
+  assert.doesNotMatch(result.ownerBasis.reason, /Priya/u);
+});
+
+test("structured extraction classification explains assignment without matching a name in the quote", () => {
+  const result = buildTaskWhy({
+    text: "Update the deck",
+    owner: "Maria",
+    classification: "assigned_task",
+    sourceEvidence: { quote: "Alex: Please update the executive deck by Friday." },
+  }, { messages: [], speakers: ["Maria", "Alex"] });
+
+  assert.equal(result.ownerBasis.status, "named-in-request");
+  assert.match(result.ownerBasis.reason, /extractor|assigned task/i);
+});
+
+test("collective and unassigned requests are not attributed to an individual", () => {
+  const collective = buildTaskWhy({
+    text: "Share the notes",
+    owner: null,
+    classification: "collective_task",
+  }, { messages: [], speakers: ["Alex", "Priya"] });
+  const unassigned = buildTaskWhy({
+    text: "Review the plan",
+    owner: null,
+    classification: "unassigned_request",
+  }, { messages: [], speakers: ["Alex", "Priya"] });
+
+  assert.equal(collective.ownerBasis.status, "collective");
+  assert.match(collective.ownerBasis.reason, /collective|no individual owner/i);
+  assert.equal(unassigned.ownerBasis.status, "unassigned-request");
+  assert.match(unassigned.ownerBasis.reason, /does not name an individual owner/i);
+  assert.doesNotMatch(JSON.stringify([collective.ownerBasis, unassigned.ownerBasis]), /Alex|Priya/u);
+});
+
+test("implied addressee is explained only when the task records that structured basis", () => {
+  const result = buildTaskWhy({
+    text: "Send the report",
+    owner: "Alex",
+    ownerSource: "implied_addressee",
+    classification: "unclassified_candidate",
+  }, { messages: [], speakers: ["Alex"] });
+
+  assert.equal(result.ownerBasis.status, "implied-addressee");
+  assert.match(result.ownerBasis.reason, /implied addressee/u);
+});
+
 test("possible tasks carry an explicit review caveat", () => {
   const result = buildTaskWhy({
     text: "Review the draft",
@@ -57,6 +116,21 @@ test("possible tasks carry an explicit review caveat", () => {
   }, { messages: [], speakers: [] });
 
   assert.ok(result.caveats.includes("Possible task - not confirmed"));
+});
+
+test("extractor outcome and explicit human acceptance remain separate", () => {
+  const result = buildTaskWhy({
+    text: "Review the draft",
+    owner: null,
+    outcome: "possible",
+    outcomeReason: "Suggestion, not a direct request",
+    humanReviewStatus: "promoted",
+  }, { messages: [], speakers: [] });
+
+  assert.equal(result.extraction.status, "possible");
+  assert.equal(result.humanReview.status, "promoted");
+  assert.match(result.humanReview.text, /accepted for tracking/i);
+  assert.equal(result.caveats.includes("Possible task - not confirmed"), false);
 });
 
 test("contextual timing is labelled as inferred from context", () => {

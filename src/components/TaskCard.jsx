@@ -2,10 +2,12 @@ import { cx, urgencyTone } from "../lib/ui/format.js";
 import { OutcomeBadge as ExtractorOutcomeBadge } from "./OutcomeBadge.jsx";
 import { Badge } from "./ui/Badge.jsx";
 import { TASK_STATUSES, TASK_STATUS_LABELS } from "../lib/views/taskWorkflow.js";
+import { hasGroundedOwner } from "../lib/views/catchUpBrief.js";
 import { TaskWhyPanel } from "./TaskWhyPanel.jsx";
 
-function OutcomeBadge({ task }) {
-  if (task.humanReviewStatus === "promoted" && task.outcome === "possible") {
+function OutcomeBadge({ task, status }) {
+  if (task.outcome === "possible"
+    && (task.humanReviewStatus === "promoted" || ["confirmed", "in-progress", "completed", "rejected"].includes(status))) {
     return <Badge tone="amber" title={task.extractionOutcomeReason || task.outcomeReason || "The extractor classified this as possible."}>Extractor: possible</Badge>;
   }
   return <ExtractorOutcomeBadge task={task} />;
@@ -13,12 +15,13 @@ function OutcomeBadge({ task }) {
 
 function classificationLabel(task) {
   if (task.classification === "self_commitment") return `Self-commitment · ${task.owner || "speaker"}`;
-  if (task.owner) return `Assigned task · ${task.owner}`;
   if (task.classification === "collective_task") return "Team task · no owner stated";
   if (task.classification === "unassigned_request") return "Unassigned request · no owner stated";
   if (task.classification === "unassigned_action") return "Unassigned action · no owner stated";
   if (task.classification === "user_confirmed_candidate") return "Candidate confirmed by you · no owner assigned";
   if (task.classification === "model_candidate") return "Model suggestion · verify details";
+  if (hasGroundedOwner(task)) return `Assigned task · ${task.owner}`;
+  if (task.owner) return "Owner basis unclear · not assigned to a participant";
   return "Unclassified candidate · verify owner";
 }
 
@@ -43,6 +46,8 @@ function supportLabel(kind) {
 }
 
 function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatus }) {
+  const humanReviewed = sourceTask.humanReviewStatus === "promoted"
+    || ["confirmed", "in-progress", "completed", "rejected"].includes(status);
   const task = sourceTask.humanReviewStatus === "promoted"
     ? { ...sourceTask, outcomeReason: null }
     : sourceTask;
@@ -75,7 +80,7 @@ function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatu
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge tone={urgencyTone(task.urgency)}>{task.urgency} priority</Badge>
-            <OutcomeBadge task={task} />
+            <OutcomeBadge task={task} status={status} />
             {task.humanReviewStatus === "promoted" && <Badge tone="green">Promoted by you</Badge>}
             <span className="text-xs text-slate-400">{classificationLabel(task)}</span>
             {task.suggestedOwner && <span className="text-xs text-amber-200">Suggested owner (unverified): {task.suggestedOwner}</span>}
@@ -107,14 +112,22 @@ function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatu
 
           {task.outcome === "possible" && task.outcomeReason && task.classification !== "model_candidate" && (
             <p className="mt-2 text-xs leading-5 text-amber-200/90">
-              Why this is only a possible task: {task.outcomeReason}. Confirm or reject it before relying on it.
+              Extractor note: {task.outcomeReason}{humanReviewed ? "" : ". Review this candidate before relying on it."}
             </p>
           )}
           <p className="mt-2 text-xs leading-5 text-slate-500">
             {task.humanReviewStatus === "promoted"
               ? task.sourceReferenceStatus === "valid"
-                ? "Exact source reference validated · task meaning confirmed by you"
-                : "Task meaning confirmed by you · source reference remains unverified"
+                ? "Exact source reference validated · candidate accepted for tracking by you"
+                : "Candidate accepted for tracking by you · source reference remains unverified"
+              : status === "confirmed"
+                ? task.sourceReferenceStatus === "valid"
+                  ? "Exact source reference validated · task meaning confirmed by you"
+                  : "Task meaning confirmed by you · source reference remains unverified"
+                : status === "in-progress"
+                  ? `Marked in progress by you · ${task.sourceReferenceStatus === "valid" ? "source reference validated" : "source reference unverified"}`
+                  : status === "completed" || status === "rejected"
+                    ? `${TASK_STATUS_LABELS[status]} · extraction outcome and conversation lifecycle remain separate`
               : task.sourceReferenceStatus === "valid"
                 ? "Exact source reference validated · meaning still needs human review"
                 : "No verified source reference · treat this as an unverified candidate"}
@@ -190,7 +203,7 @@ export function TaskCard(props) {
   return (
     <div className="space-y-2">
       <TaskCardContent {...props} />
-      <TaskWhyPanel task={props.task} onShowSource={props.onShowSource} />
+      <TaskWhyPanel task={props.task} reviewStatus={props.status} onShowSource={props.onShowSource} />
     </div>
   );
 }

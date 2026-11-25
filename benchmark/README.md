@@ -27,8 +27,13 @@ Strict = confirmed tasks only; lenient = confirmed + possible-review.
 ## Keeping the holdout blind
 `benchmark/data/holdout/` is git-ignored on purpose. A holdout that is published (or whose misses
 you have read) stops being blind. Keep it in a private location, copy it in locally to run
-`npm run bench:holdout`, and write a fresh one when it has been inspected. Without it, the holdout
-regression check is skipped.
+`npm run bench:holdout`, and write a fresh one when it has been inspected. Without that directory,
+`npm run bench:holdout` reports that no data is available and exits with a non-zero status; the
+development test and V2 commands do not run a holdout.
+
+The private directory is not present in this checkout. The tracked flat
+`benchmark/data/holdout-v0.chats.txt` file is not read by `loadSplit`, which only loads `.chat`
+files inside a split directory. It is not a currently available sealed evaluation set.
 
 ## Independent holdout annotation workflow
 

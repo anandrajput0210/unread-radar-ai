@@ -6,6 +6,12 @@ export const MAX_RECORD_BYTES = 512 * 1024;
 const UINT64_MASK = (1n << 64n) - 1n;
 const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;
+const FINGERPRINT_PATTERN = /^fnv1a64:[0-9a-f]{16}$/u;
+const SNAPSHOT_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const TASK_STATUSES = new Set(["needs-review", "confirmed", "in-progress", "completed", "rejected"]);
+const OUTCOMES = new Set(["confirmed", "possible"]);
+const URGENCY_LEVELS = new Set(["High", "Medium", "Low"]);
+const REVIEW_DECISIONS = new Set(["promoted", "rejected"]);
 
 function normalizedText(text) {
   if (typeof text !== "string") {
@@ -32,23 +38,231 @@ function isRecordObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function isValidRecord(value) {
+function isIsoTimestamp(value) {
+  if (typeof value !== "string") return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function isSourceRange(value) {
   return isRecordObject(value)
-    && value.schemaVersion === SCHEMA_VERSION
-    && typeof value.fingerprint === "string"
-    && typeof value.savedAt === "string"
-    && Number.isFinite(Date.parse(value.savedAt))
-    && isRecordObject(value.analysis)
-    && isRecordObject(value.reviewDecisions)
-    && isRecordObject(value.taskStatuses)
-    && (value.selectedIdentity === null || typeof value.selectedIdentity === "string")
-    && Array.isArray(value.sourceMessageFingerprints)
-    && value.sourceMessageFingerprints.every((item) => typeof item === "string")
-    && (value.sourceSnapshotId === null || typeof value.sourceSnapshotId === "string")
-    && Array.isArray(value.sourceMessageRanges)
-    && value.sourceMessageRanges.every((range) => isRecordObject(range)
-      && Number.isSafeInteger(range.startOffset)
-      && Number.isSafeInteger(range.endOffset));
+    && Number.isSafeInteger(value.startOffset)
+    && Number.isSafeInteger(value.endOffset)
+    && value.startOffset >= 0
+    && value.endOffset >= value.startOffset;
+}
+
+function isEvidenceReference(value) {
+  return isRecordObject(value)
+    && typeof value.quote === "string"
+    && value.quote.length > 0
+    && SNAPSHOT_PATTERN.test(value.snapshotId)
+    && SNAPSHOT_PATTERN.test(value.messageId)
+    && isSourceRange(value);
+}
+
+function isOptionalEvidence(value) {
+  return value == null || isEvidenceReference(value);
+}
+
+function isOptionalString(value) {
+  return value == null || typeof value === "string";
+}
+
+function hasValidEvidenceWhenClaimed(status, evidence) {
+  return status !== "valid" || isEvidenceReference(evidence);
+}
+
+function isOptionalFiniteNumber(value) {
+  return value == null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isOptionalBoolean(value) {
+  return value == null || typeof value === "boolean";
+}
+
+function isLifecycleEvent(value) {
+  return isRecordObject(value)
+    && typeof value.type === "string"
+    && isOptionalString(value.actor)
+    && isOptionalString(value.text)
+    && isOptionalString(value.newOwner)
+    && isOptionalString(value.previousOwner)
+    && isOptionalEvidence(value.evidence)
+    && (value.sourceSpan == null || isSourceRange(value.sourceSpan))
+    && isOptionalString(value.sourceReferenceStatus);
+}
+
+function isSupportingEvidence(value) {
+  return isRecordObject(value)
+    && isOptionalString(value.text)
+    && isOptionalString(value.kind)
+    && isOptionalEvidence(value.evidence)
+    && (value.sourceSpan == null || isSourceRange(value.sourceSpan))
+    && isOptionalString(value.sourceReferenceStatus);
+}
+
+function isTaskRecord(value) {
+  if (!isRecordObject(value) || typeof value.id !== "string" || !value.id.trim()
+    || typeof value.text !== "string" || !value.text.trim()
+    || !isOptionalString(value.owner)
+    || !isOptionalString(value.classification)
+    || !isOptionalString(value.ownerSource)
+    || !isOptionalString(value.outcomeReason)
+    || !isOptionalString(value.extractionOutcomeReason)
+    || !isOptionalString(value.dueDate)
+    || !isOptionalString(value.resolvedDueDate)
+    || !isOptionalString(value.dueDateStatus)
+    || !isOptionalString(value.lifecycleStatus)
+    || !isOptionalString(value.condition)
+    || !isOptionalString(value.conditionStatus)
+    || !isOptionalString(value.humanReviewStatus)
+    || !isOptionalString(value.suggestedOwner)
+    || !isOptionalString(value.suggestedDueDate)
+    || !isOptionalString(value.suggestedResolvedDueDate)
+    || !isOptionalString(value.reviewCandidateId)
+    || !isOptionalString(value.acknowledgementReferenceStatus)
+    || !isOptionalString(value.sourceReferenceStatus)
+    || !isOptionalEvidence(value.sourceEvidence)
+    || !isOptionalEvidence(value.acknowledgementEvidence)
+    || !isOptionalEvidence(value.humanReviewEvidence)
+    || !isOptionalEvidence(value.reviewSourceReference)
+    || (value.sourceSpan != null && !isSourceRange(value.sourceSpan))
+    || (value.acknowledgementSpan != null && !isSourceRange(value.acknowledgementSpan))
+    || (value.outcome != null && !OUTCOMES.has(value.outcome))
+    || (value.urgency != null && !URGENCY_LEVELS.has(value.urgency))
+    || !isOptionalFiniteNumber(value.confidence)
+    || !isOptionalBoolean(value.completed)
+    || !isOptionalBoolean(value.cancelled)
+    || (value.lifecycleEvents != null
+      && (!Array.isArray(value.lifecycleEvents) || !value.lifecycleEvents.every(isLifecycleEvent)))
+    || (value.supportingEvidence != null
+      && (!Array.isArray(value.supportingEvidence) || !value.supportingEvidence.every(isSupportingEvidence)))
+    || (value.supportingDetails != null
+      && (!Array.isArray(value.supportingDetails) || !value.supportingDetails.every(isSupportingEvidence)))) {
+    return false;
+  }
+  return value.sourceReferenceStatus !== "valid" || isEvidenceReference(value.sourceEvidence);
+}
+
+function isReviewCandidate(value) {
+  return isRecordObject(value)
+    && typeof value.id === "string"
+    && value.id.trim().length > 0
+    && typeof value.text === "string"
+    && value.text.trim().length > 0
+    && isEvidenceReference(value.sourceEvidence)
+    && value.sourceReferenceStatus === "valid"
+    && isOptionalString(value.reasonLabel)
+    && isOptionalString(value.owner)
+    && isOptionalString(value.dueDate)
+    && isOptionalString(value.resolvedDueDate)
+    && isOptionalString(value.extractionState)
+    && (value.outcome == null || OUTCOMES.has(value.outcome))
+    && (value.missing == null || (Array.isArray(value.missing) && value.missing.every((item) => typeof item === "string")));
+}
+
+function isAnalysisRecord(value) {
+  const listFields = ["summary", "actions", "reviewQueue", "decisions", "deadlines", "mentions", "urgentRows", "alerts"];
+  if (!isRecordObject(value) || !listFields.every((field) => Array.isArray(value[field]))) return false;
+  if (!value.summary.every((item) => typeof item === "string")
+    || !value.actions.every(isTaskRecord)
+    || !value.reviewQueue.every(isReviewCandidate)
+    || !value.decisions.every((item) => typeof item === "string"
+      || (isRecordObject(item) && typeof item.text === "string"))
+    || !value.deadlines.every((item) => isRecordObject(item)
+      && typeof item.id === "string"
+      && typeof item.text === "string"
+      && Array.isArray(item.dates)
+      && item.dates.every((date) => typeof date === "string")
+      && isOptionalEvidence(item.sourceEvidence)
+      && isOptionalString(item.sourceReferenceStatus)
+      && hasValidEvidenceWhenClaimed(item.sourceReferenceStatus, item.sourceEvidence)
+      && (item.urgency == null || URGENCY_LEVELS.has(item.urgency)))
+    || !value.mentions.every((item) => isRecordObject(item)
+      && typeof item.handle === "string"
+      && typeof item.line === "string"
+      && isOptionalEvidence(item.sourceEvidence)
+      && isOptionalString(item.sourceReferenceStatus)
+      && hasValidEvidenceWhenClaimed(item.sourceReferenceStatus, item.sourceEvidence)
+      && (item.urgency == null || URGENCY_LEVELS.has(item.urgency)))
+    || !value.urgentRows.every((item) => isRecordObject(item)
+      && typeof item.id === "string"
+      && typeof item.text === "string"
+      && isOptionalString(item.reason)
+      && isOptionalEvidence(item.sourceEvidence)
+      && isOptionalString(item.sourceReferenceStatus)
+      && hasValidEvidenceWhenClaimed(item.sourceReferenceStatus, item.sourceEvidence)
+      && (item.urgency == null || URGENCY_LEVELS.has(item.urgency)))
+    || !value.alerts.every(isTaskRecord)
+    || (value.summaryEvidence != null && !Array.isArray(value.summaryEvidence))
+    || (value.decisionFindings != null && (!Array.isArray(value.decisionFindings)
+      || !value.decisionFindings.every((item) => isRecordObject(item) && typeof item.text === "string")))
+    || (value.lineCount != null && (!Number.isSafeInteger(value.lineCount) || value.lineCount < 0))
+    || (value.sourceChunks != null && (!Number.isSafeInteger(value.sourceChunks) || value.sourceChunks < 0))
+    || (value.modelId != null && typeof value.modelId !== "string")) {
+    return false;
+  }
+  return true;
+}
+
+function isReviewDecisions(value) {
+  return isRecordObject(value) && Object.entries(value).every(([id, decision]) => id.trim().length > 0
+    && isRecordObject(decision)
+    && REVIEW_DECISIONS.has(decision.decision)
+    && isIsoTimestamp(decision.reviewedAt));
+}
+
+function isTaskStatuses(value) {
+  return isRecordObject(value) && Object.entries(value).every(([id, status]) => id.trim().length > 0
+    && TASK_STATUSES.has(status));
+}
+
+function isValidRecord(value) {
+  if (!isRecordObject(value)
+    || value.schemaVersion !== SCHEMA_VERSION
+    || typeof value.fingerprint !== "string"
+    || !FINGERPRINT_PATTERN.test(value.fingerprint)
+    || !isIsoTimestamp(value.savedAt)
+    || !isAnalysisRecord(value.analysis)
+    || !isReviewDecisions(value.reviewDecisions)
+    || !isTaskStatuses(value.taskStatuses)
+    || !(value.selectedIdentity === null || (typeof value.selectedIdentity === "string" && value.selectedIdentity.length <= 160))
+    || !Array.isArray(value.sourceMessageFingerprints)
+    || !value.sourceMessageFingerprints.every((item) => typeof item === "string" && FINGERPRINT_PATTERN.test(item))
+    || typeof value.sourceSnapshotId !== "string"
+    || !SNAPSHOT_PATTERN.test(value.sourceSnapshotId)
+    || !Array.isArray(value.sourceMessageRanges)
+    || !value.sourceMessageRanges.every(isSourceRange)
+    || value.sourceMessageRanges.length !== value.sourceMessageFingerprints.length
+    || (value.analysis.sourceSnapshotId != null && value.analysis.sourceSnapshotId !== value.sourceSnapshotId)) {
+    return false;
+  }
+  const taskIds = value.analysis.actions.map((task) => task.id);
+  return new Set(taskIds).size === taskIds.length && haveValidAnalysisReferences(value.analysis, value);
+}
+
+function isWithinMessageRanges(location, record) {
+  return record.sourceMessageRanges.some((range) => (
+    location.startOffset >= range.startOffset && location.endOffset <= range.endOffset
+  ));
+}
+
+function haveValidAnalysisReferences(value, record) {
+  if (Array.isArray(value)) return value.every((item) => haveValidAnalysisReferences(item, record));
+  if (!isRecordObject(value)) return true;
+
+  if ("snapshotId" in value || "messageId" in value) {
+    if (!isEvidenceReference(value)
+      || value.snapshotId !== record.sourceSnapshotId
+      || !isWithinMessageRanges(value, record)) {
+      return false;
+    }
+  } else if ("startOffset" in value || "endOffset" in value) {
+    if (!isSourceRange(value) || !isWithinMessageRanges(value, record)) return false;
+  }
+
+  return Object.values(value).every((item) => haveValidAnalysisReferences(item, record));
 }
 
 function getOwnedKeys(storage) {
@@ -88,6 +302,11 @@ function readStoredRecords(storage) {
       return { records: [], error };
     }
     if (typeof serialized !== "string") continue;
+    try {
+      if (recordBytes(serialized) > MAX_RECORD_BYTES) continue;
+    } catch {
+      continue;
+    }
 
     let value;
     try {
@@ -116,33 +335,20 @@ function recordBytes(serialized) {
 }
 
 function prepareRecord(record) {
-  if (!isRecordObject(record)
-    || typeof record.fingerprint !== "string"
-    || !record.fingerprint
-    || record.schemaVersion !== SCHEMA_VERSION
-    || !isRecordObject(record.analysis)) {
+  if (!isValidRecord(record)) {
     return null;
   }
   return {
     fingerprint: record.fingerprint,
-    savedAt: typeof record.savedAt === "string" && Number.isFinite(Date.parse(record.savedAt))
-      ? record.savedAt
-      : new Date().toISOString(),
+    savedAt: record.savedAt,
     schemaVersion: SCHEMA_VERSION,
     analysis: record.analysis,
-    reviewDecisions: isRecordObject(record.reviewDecisions) ? record.reviewDecisions : {},
-    taskStatuses: isRecordObject(record.taskStatuses) ? record.taskStatuses : {},
-    selectedIdentity: typeof record.selectedIdentity === "string" ? record.selectedIdentity : null,
-    sourceMessageFingerprints: Array.isArray(record.sourceMessageFingerprints)
-      ? record.sourceMessageFingerprints.filter((item) => typeof item === "string")
-      : [],
-    sourceSnapshotId: typeof record.sourceSnapshotId === "string" ? record.sourceSnapshotId : null,
-    sourceMessageRanges: Array.isArray(record.sourceMessageRanges)
-      ? record.sourceMessageRanges.filter((range) => isRecordObject(range)
-        && Number.isSafeInteger(range.startOffset)
-        && Number.isSafeInteger(range.endOffset))
-        .map(({ startOffset, endOffset }) => ({ startOffset, endOffset }))
-      : [],
+    reviewDecisions: record.reviewDecisions,
+    taskStatuses: record.taskStatuses,
+    selectedIdentity: record.selectedIdentity,
+    sourceMessageFingerprints: record.sourceMessageFingerprints,
+    sourceSnapshotId: record.sourceSnapshotId,
+    sourceMessageRanges: record.sourceMessageRanges.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })),
   };
 }
 
@@ -205,6 +411,11 @@ export function loadSession(storage, fingerprintValue) {
     return null;
   }
   if (typeof serialized !== "string") return null;
+  try {
+    if (recordBytes(serialized) > MAX_RECORD_BYTES) return null;
+  } catch {
+    return null;
+  }
 
   let value;
   try {

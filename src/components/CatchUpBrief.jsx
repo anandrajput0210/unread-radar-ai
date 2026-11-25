@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Badge } from "./ui/Badge.jsx";
-import { PAST_DUE_LABEL, buildCatchUpBrief, listSpeakers } from "../lib/views/catchUpBrief.js";
+import { PAST_DUE_LABEL, buildCatchUpBrief, hasGroundedOwner, listSpeakers } from "../lib/views/catchUpBrief.js";
 
 function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses }) {
   if (!tasks.length) return null;
@@ -14,10 +14,17 @@ function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses })
         <article key={task.id} className="rounded-xl border border-slate-700/60 bg-slate-950/30 p-3">
           <p className="text-sm leading-5 text-slate-100">{task.text}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <Badge tone={tone}>{task.owner || "No owner stated"}</Badge>
+            <Badge tone={tone}>{hasGroundedOwner(task) ? task.owner : "Owner not established"}</Badge>
+            {task.outcome === "possible" && <Badge tone="amber">Extractor: possible</Badge>}
+            {task.humanReviewStatus === "promoted"
+              ? <Badge tone="green">Accepted for tracking by you</Badge>
+              : statuses?.[task.id] === "confirmed"
+                ? <Badge tone="green">Confirmed by you</Badge>
+                : statuses?.[task.id] === "in-progress"
+                  ? <Badge tone="blue">Marked in progress by you</Badge>
+                  : null}
             {task.dueDate && <span>Due: {task.dueDate}{task.resolvedDueDate ? ` (${task.resolvedDueDate})` : ""}</span>}
             {pastDueIds.has(task.id) && <Badge tone="red">{PAST_DUE_LABEL}</Badge>}
-            {statuses?.[task.id] === "in-progress" && <Badge tone="blue">Marked in progress by you</Badge>}
             {(task.lifecycleStatus === "blocked" || task.lifecycleStatus === "delayed") && <Badge tone="amber">{task.lifecycleStatus}</Badge>}
           </div>
           {task.sourceEvidence?.quote && (
@@ -66,7 +73,7 @@ export function CatchUpBrief({ actions, snapshot, statuses, me, onChangeMe, asOf
       <Group title="Might be you" hint="The owner name could match more than one person in this chat." tasks={g.mightBeYou} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Assigned to others" tasks={g.assignedToOthers} tone="slate" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Assigned" hint="Pick who you are above to split these into yours and others'." tasks={g.assigned} tone="slate" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
-      <Group title="Nobody owns it yet" tasks={g.noOwner} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
+      <Group title="Owner not established" tasks={g.noOwner} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Needs a human look" hint="Possible tasks. Not counted as assigned to anyone." tasks={g.needsReview} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
     </div>
   );
