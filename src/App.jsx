@@ -22,6 +22,45 @@ import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, pr
 import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 import { SAMPLE_CHATS } from "./lib/sampleChats.js";
+import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
+import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
+import { diffSessions } from "./lib/views/whatChanged.js";
+
+function getLocalStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function messageFingerprints(snapshot) {
+  return (snapshot?.messages || []).map((message) => fingerprint(JSON.stringify([
+    message.authorRaw || "",
+    message.timestampRaw || "",
+    (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
+  ])));
+}
+
+function messageRanges(snapshot) {
+  return (snapshot?.messages || []).map(({ startOffset, endOffset }) => ({ startOffset, endOffset }));
+}
+
+function retainTaskStatuses(statuses, actions) {
+  const taskIds = new Set((Array.isArray(actions) ? actions : []).map((task) => task.id));
+  return Object.fromEntries(Object.entries(statuses || {}).filter(([id, status]) => (
+    taskIds.has(id) && TASK_STATUSES.includes(status)
+  )));
+}
+
+function retainReviewDecisions(decisions, reviewQueue) {
+  const candidateIds = new Set((Array.isArray(reviewQueue) ? reviewQueue : []).map((item) => item.id));
+  return Object.fromEntries(Object.entries(decisions || {}).filter(([id, decision]) => (
+    candidateIds.has(id)
+    && ["promoted", "rejected"].includes(decision?.decision)
+    && typeof decision.reviewedAt === "string"
+  )));
+}
 
 function formatDurationMs(value) {
   return Number.isFinite(value) ? `${(value / 1000).toFixed(1)}s` : "n/a";
@@ -49,6 +88,10 @@ export default function App() {
   const [useLocalModel, setUseLocalModel] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
   const [selectedSource, setSelectedSource] = useState(null);
+  const [persistenceEnabled, setPersistenceEnabled] = useState(false);
+  const [persistenceStatus, setPersistenceStatus] = useState({ type: "", message: "" });
+  const [restoredSession, setRestoredSession] = useState(null);
+  const [changeDiff, setChangeDiff] = useState(null);
   const sourceSpeakers = useMemo(() => listSpeakers(sourceSnapshot), [sourceSnapshot]);
   const [briefMe, setBriefMe] = useState(null);
   const [briefAsOf, setBriefAsOf] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
@@ -61,13 +104,76 @@ export default function App() {
   const legacyCleanupAttemptedRef = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!chatText.trim() || hasAnalysis || isAnalyzing) return () => { cancelled = true; };
+
+    const storage = getLocalStorage();
+    if (!storage) {
+      if (persistenceEnabled) {
+        setPersistenceStatus({
+          type: "warning",
+          message: "Device storage is unavailable. This analysis will remain in memory.",
+        });
+      }
+      return () => { cancelled = true; };
+    }
+
+    let chatFingerprint;
+    try {
+      chatFingerprint = fingerprint(chatText);
+    } catch (error) {
+      setPersistenceStatus({
+        type: "warning",
+        message: error instanceof Error ? error.message : "The saved review could not be checked.",
+      });
+      return () => { cancelled = true; };
+    }
+    if (!loadSession(storage, chatFingerprint)) return () => { cancelled = true; };
+
+    createSourceSnapshot(chatText, { dateOrder: dateOrderChoice === "auto" ? undefined : dateOrderChoice })
+      .then((snapshot) => {
+        if (cancelled) return;
+        const saved = restoreSession(storage, chatFingerprint, listSpeakers(snapshot));
+        if (!saved) return;
+        if (saved.sourceSnapshotId !== snapshot.snapshotId) {
+          setPersistenceStatus({
+            type: "warning",
+            message: "Saved review found, but its source snapshot does not match these import settings. Run a fresh analysis.",
+          });
+          return;
+        }
+
+        const savedAnalysis = saved.analysis;
+        setSourceSnapshot(snapshot);
+        setSelectedSource(null);
+        setAnalysis(savedAnalysis);
+        setHasAnalysis(true);
+        setTaskStatuses(retainTaskStatuses(saved.taskStatuses, savedAnalysis.actions));
+        setReviewDecisions(retainReviewDecisions(saved.reviewDecisions, savedAnalysis.reviewQueue));
+        setBriefMe(saved.selectedIdentity);
+        setRestoredSession(saved);
+        setChangeDiff(null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPersistenceStatus({
+            type: "warning",
+            message: "The saved review could not be restored. Your chat remains in memory.",
+          });
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [chatText, dateOrderChoice, hasAnalysis, isAnalyzing, persistenceEnabled]);
+
+  useEffect(() => {
     if (legacyCleanupAttemptedRef.current) return;
     legacyCleanupAttemptedRef.current = true;
     const cleanup = clearLegacySessionCache();
     if (!cleanup.success) {
       setLegacyCacheStatus({
         type: "error",
-        message: `The old session cache could not be confirmed as removed: ${cleanup.error}. Conversation analysis now uses memory-only caching; review this tab's site storage manually if needed.`,
+        message: `The old session cache could not be confirmed as removed: ${cleanup.error}. New persistence is opt-in; review this tab's site storage manually if needed.`,
       });
     } else if (cleanup.removed) {
       setLegacyCacheStatus({ type: "success", message: "The legacy conversation-result cache entry was removed from this tab." });
@@ -130,6 +236,33 @@ export default function App() {
     return matchesSearch && matchesUrgency && matchesStatus && matchesOutcome;
   });
 
+  function persistCurrentSession(overrides = {}, enabled = persistenceEnabled) {
+    if (!enabled) return { saved: false, status: "disabled", message: "Persistence is off; nothing was saved." };
+    const snapshot = overrides.sourceSnapshot || sourceSnapshot;
+    if (!snapshot) return { saved: false, status: "not-saved", message: "This analysis was not saved because its source snapshot is unavailable." };
+    const selectedIdentity = Object.prototype.hasOwnProperty.call(overrides, "selectedIdentity")
+      ? overrides.selectedIdentity
+      : briefMe;
+    const record = {
+      fingerprint: fingerprint(snapshot.rawText),
+      savedAt: new Date().toISOString(),
+      schemaVersion: SCHEMA_VERSION,
+      analysis: overrides.analysis || analysis,
+      reviewDecisions: overrides.reviewDecisions || reviewDecisions,
+      taskStatuses: overrides.taskStatuses || taskStatuses,
+      selectedIdentity: typeof selectedIdentity === "string" ? selectedIdentity : null,
+      sourceMessageFingerprints: messageFingerprints(snapshot),
+      sourceSnapshotId: snapshot.snapshotId,
+      sourceMessageRanges: messageRanges(snapshot),
+    };
+    const result = persistIfEnabled(getLocalStorage(), enabled, record);
+    setPersistenceStatus({
+      type: result.saved ? "success" : result.status === "disabled" ? "" : "warning",
+      message: result.message,
+    });
+    return result;
+  }
+
   function resetAnalysis() {
     // Invalidate async work before clearing data so late completions cannot repopulate the cache.
     activeRunRef.current += 1;
@@ -149,6 +282,8 @@ export default function App() {
     setOutcomeFilter("All");
     setExportStatus({ type: "", message: "" });
     setAnalysisStatus({ type: "", message: "" });
+    setRestoredSession(null);
+    setChangeDiff(null);
   }
 
   function handleTextChange(value) {
@@ -254,6 +389,8 @@ export default function App() {
     setHasAnalysis(false);
     setAnalysis(createEmptyAnalysis());
     setSourceSnapshot(null);
+    setRestoredSession(null);
+    setChangeDiff(null);
     setAnalysisStatus({ type: "progress", message: "Preserving source text and validating local processing support…" });
 
     try {
@@ -292,6 +429,31 @@ export default function App() {
       setHasAnalysis(true);
       setTaskStatuses({});
       setReviewDecisions({});
+      if (persistenceEnabled) {
+        const currentFingerprint = fingerprint(source);
+        const currentMessageFingerprints = messageFingerprints(snapshot);
+        const previousRecords = listSessions(getLocalStorage())
+          .filter((record) => {
+            if (record.fingerprint === currentFingerprint) return true;
+            const previousHashes = record.sourceMessageFingerprints;
+            return previousHashes.length > 0
+              && previousHashes.length < currentMessageFingerprints.length
+              && previousHashes.every((value, index) => value === currentMessageFingerprints[index]);
+          })
+          .sort((left, right) => {
+            const leftExact = left.fingerprint === currentFingerprint;
+            const rightExact = right.fingerprint === currentFingerprint;
+            if (leftExact !== rightExact) return leftExact ? -1 : 1;
+            return right.sourceMessageFingerprints.length - left.sourceMessageFingerprints.length
+              || Date.parse(right.savedAt) - Date.parse(left.savedAt);
+          });
+        const previous = previousRecords[0];
+        setChangeDiff(previous
+          ? diffSessions(previous, { analysis: result, sourceMessageRanges: messageRanges(snapshot) })
+          : null);
+      } else {
+        setChangeDiff(null);
+      }
 
       if (execution.mode === "rules-only" && execution.fallbackReason) {
         setModelState({ state: "rules-only", progress: 0, message: "Rules-only fallback active" });
@@ -327,6 +489,15 @@ export default function App() {
         type: statusType,
         message: `${inferenceNote}${modelSegmentNote}${timingNote} · ${elapsedSeconds}s.${granularityNote}`,
       });
+      if (persistenceEnabled) {
+        persistCurrentSession({
+          sourceSnapshot: snapshot,
+          analysis: result,
+          reviewDecisions: {},
+          taskStatuses: {},
+          selectedIdentity: briefMe,
+        });
+      }
       setActiveTab("summary");
     } catch (error) {
       if (runId !== activeRunRef.current) return;
@@ -340,7 +511,9 @@ export default function App() {
   }
 
   function changeTaskStatus(id, nextStatus) {
-    setTaskStatuses((current) => updateTaskStatus(current, id, nextStatus));
+    const updated = updateTaskStatus(taskStatuses, id, nextStatus);
+    setTaskStatuses(updated);
+    persistCurrentSession({ taskStatuses: updated });
   }
 
   function promoteReviewItem(candidate) {
@@ -352,22 +525,69 @@ export default function App() {
 
     const reviewedAt = new Date().toISOString();
     const taskId = result.actions[result.actions.length - 1].id;
+    const updatedAnalysis = { ...analysis, actions: result.actions };
+    const updatedStatuses = updateTaskStatus(taskStatuses, taskId, "confirmed");
+    const updatedDecisions = {
+      ...reviewDecisions,
+      [candidate.id]: { decision: "promoted", reviewedAt },
+    };
     setAnalysis((current) => {
       const latest = promoteReviewCandidate(current.actions, candidate);
       return latest.duplicate ? current : { ...current, actions: latest.actions };
     });
-    setTaskStatuses((statuses) => updateTaskStatus(statuses, taskId, "confirmed"));
-    setReviewDecisions((decisions) => ({
-      ...decisions,
-      [candidate.id]: { decision: "promoted", reviewedAt },
-    }));
+    setTaskStatuses(updatedStatuses);
+    setReviewDecisions(updatedDecisions);
+    persistCurrentSession({
+      analysis: updatedAnalysis,
+      taskStatuses: updatedStatuses,
+      reviewDecisions: updatedDecisions,
+    });
     setAnalysisStatus({ type: "success", message: "Candidate promoted by you. The original evidence was preserved; extracted owner and deadline suggestions remain unverified." });
   }
 
   function rejectReviewItem(candidate) {
     const reviewedAt = new Date().toISOString();
-    setReviewDecisions((decisions) => rejectReviewCandidate(decisions, candidate.id, reviewedAt));
+    const updatedDecisions = rejectReviewCandidate(reviewDecisions, candidate.id, reviewedAt);
+    setReviewDecisions(updatedDecisions);
+    persistCurrentSession({ reviewDecisions: updatedDecisions });
     setAnalysisStatus({ type: "success", message: "Candidate rejected by you. It was removed from active review and was not marked completed." });
+  }
+
+  function changeBriefIdentity(identity) {
+    setBriefMe(identity);
+    persistCurrentSession({ selectedIdentity: identity });
+  }
+
+  function togglePersistence(enabled) {
+    setPersistenceEnabled(enabled);
+    if (!enabled) {
+      setPersistenceStatus({
+        type: "",
+        message: "Persistence is off. Previously saved data remains until you clear it.",
+      });
+      return;
+    }
+
+    setPersistenceStatus({ type: "", message: "" });
+    if (hasAnalysis && sourceSnapshot) {
+      persistCurrentSession({}, true);
+    }
+  }
+
+  function clearSavedData() {
+    const result = clearAll(getLocalStorage());
+    setPersistenceEnabled(false);
+    setRestoredSession(null);
+    setChangeDiff(null);
+    setPersistenceStatus({
+      type: result.success ? "success" : "warning",
+      message: result.message,
+    });
+  }
+
+  function startFresh() {
+    resetAnalysis();
+    setRestoredSession(null);
   }
 
   function showSourceInInput(reference, referenceStatus = "unverified") {
@@ -495,7 +715,7 @@ export default function App() {
           <section className={cx("grid gap-6", activeTab === "tasks" ? "" : "xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]")}>
             <div className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
-                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log, or try a short built-in example.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Raw conversation text, source snapshots, excerpts, and findings remain memory-only. Up to three analysis results may be cached in memory until cleared or the page is closed. Unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
+                <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log, or try a short built-in example.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Chat text and source snapshots stay in memory by default. Optional saving stores analysis and review data, not the raw chat; unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
                 <Badge tone="green"><LockKeyhole size={12} /> Local</Badge>
               </div>
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
@@ -507,9 +727,21 @@ export default function App() {
                 <button type="button" onClick={() => loadSampleChat("english")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try English sample</button>
                 <button type="button" onClick={() => loadSampleChat("hinglish")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try Hinglish sample</button>
               </div>
+              <section className="mb-4 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3" aria-label="On-device persistence controls">
+                <label htmlFor="save-analysis-locally" className="flex cursor-pointer items-start gap-3">
+                  <input id="save-analysis-locally" type="checkbox" checked={persistenceEnabled} onChange={(event) => togglePersistence(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950" />
+                  <span><span className="block text-xs font-bold text-slate-100">Save this analysis on this device</span><span className="mt-1 block text-xs leading-5 text-slate-400">Off by default. When on, analysis results (including quoted evidence), review decisions, selected identity, and source fingerprints are saved in this browser's localStorage; raw chat text is not saved.</span></span>
+                </label>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] leading-4 text-slate-500">Saved data applies only to the same source fingerprint.</p>
+                  <button type="button" onClick={clearSavedData} className="rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:border-rose-300/50 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Clear saved data</button>
+                </div>
+                {persistenceStatus.message && <p className={cx("mt-2 rounded-lg px-2.5 py-2 text-xs leading-5", persistenceStatus.type === "warning" ? "bg-amber-300/10 text-amber-100" : persistenceStatus.type === "success" ? "bg-emerald-400/10 text-emerald-200" : "bg-slate-800/70 text-slate-400")} role="status" aria-live="polite">{persistenceStatus.message}</p>}
+              </section>
               <label htmlFor="chat-log" className="mb-2 block text-sm font-semibold text-slate-200">Chat log</label>
               <textarea ref={chatTextareaRef} id="chat-log" value={chatText} disabled={isAnalyzing} onChange={(event) => handleTextChange(event.target.value)} placeholder="Paste or drop a raw conversation here…" rows={15} spellCheck="false" className="w-full resize-y rounded-xl border border-slate-700/70 bg-slate-950/75 px-4 py-3 font-mono text-xs leading-6 text-slate-100 shadow-inner shadow-black/20 placeholder:font-sans placeholder:text-slate-500 focus:border-cyan-300/70 focus:bg-slate-950 focus:outline-none focus:ring-4 focus:ring-indigo-400/20" />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"><span className={chatText.length > MAX_ANALYSIS_CHARACTERS ? "font-semibold text-rose-200" : ""}>{chatText.length.toLocaleString()} / {MAX_ANALYSIS_CHARACTERS.toLocaleString()} characters · {chatText.split(/\r?\n/).filter((line) => line.trim()).length} non-empty rows</span><button type="button" onClick={() => { handleTextChange(""); setLoadedFileName(""); setFileStatus({ type: "", message: "" }); }} disabled={!chatText || isAnalyzing} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"><X size={13} /> Clear input</button></div>
+              {restoredSession && <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/[0.06] px-3 py-2.5 text-xs leading-5 text-emerald-100" role="status"><span>Restored your saved review for this chat</span><button type="button" onClick={startFresh} className="rounded-md border border-emerald-200/30 px-2.5 py-1 font-bold hover:bg-emerald-200/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Start fresh</button></div>}
               <button type="button" onClick={runAnalysis} disabled={!chatText.trim() || chatText.length > MAX_ANALYSIS_CHARACTERS || isAnalyzing} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-200/20 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-sm font-extrabold text-white shadow-[0_0_30px_rgba(99,102,241,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_38px_rgba(34,211,238,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0">
                 {isAnalyzing ? <LoaderCircle size={17} className="animate-spin" aria-hidden="true" /> : <Sparkles size={17} aria-hidden="true" />}
                 {isAnalyzing ? "Analyzing locally…" : useLocalModel ? (modelState.state === "ready" ? "Analyze with on-device AI" : "Load model & analyze") : "Run rules-only analysis"}
@@ -519,7 +751,7 @@ export default function App() {
               <ImportReview warnings={sourceSnapshot?.importWarnings} dateOrderChoice={dateOrderChoice} disabled={isAnalyzing} onDateOrderChange={(value) => { setDateOrderChoice(value); runAnalysis({ forceFresh: true, dateOrder: value }); }} />
               {legacyCacheStatus.message && <p className={cx("mt-2 rounded-lg px-3 py-2 text-xs leading-5", legacyCacheStatus.type === "error" ? "bg-rose-400/10 text-rose-200" : "bg-emerald-400/10 text-emerald-200")} role={legacyCacheStatus.type === "error" ? "alert" : "status"}>{legacyCacheStatus.message}</p>}
               {hasAnalysis && sourceSnapshot && <p className="mt-2 rounded-lg border border-slate-700/60 bg-slate-950/35 px-3 py-2 text-xs leading-5 text-slate-400">Source snapshot: {sourceSnapshot.messages.length} {sourceSnapshot.messages.length === 1 ? "message" : "messages"} · {sourceSnapshot.boundaryMode === "opaque" ? "Opaque import; reduced message-level granularity; author and timestamp unknown" : "Recognized source records; original order preserved"}.</p>}
-              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint.</p></div></div></div>
+              <div className="mt-5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3.5"><div className="flex items-start gap-2.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-emerald-300" aria-hidden="true" /><div><p className="text-xs font-bold text-emerald-200">Privacy model</p><p className="mt-1 text-xs leading-5 text-emerald-100/75">Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint. Saved analysis and review data is written to this browser only when the separate persistence toggle is on.</p></div></div></div>
             </div>
 
             <div className="min-w-0 space-y-5">
@@ -536,12 +768,12 @@ export default function App() {
                   <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[11px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your catch-up brief will appear here" description="Paste or upload a conversation and run rules-only extraction by default. You can explicitly opt in to the on-device model when you want additional candidate suggestions." /> : <><CatchUpBrief actions={analysis.actions} snapshot={sourceSnapshot} statuses={taskStatuses} me={briefMe} onChangeMe={setBriefMe} asOf={briefAsOf} onChangeAsOf={setBriefAsOf} onShowSource={showSourceInInput} /><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your catch-up brief will appear here" description="Paste or upload a conversation and run rules-only extraction by default. You can explicitly opt in to the on-device model when you want additional candidate suggestions." /> : <><WhatChangedPanel diff={changeDiff} /><CatchUpBrief actions={analysis.actions} snapshot={sourceSnapshot} statuses={taskStatuses} me={briefMe} onChangeMe={changeBriefIdentity} asOf={briefAsOf} onChangeAsOf={setBriefAsOf} onShowSource={showSourceInInput} /><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
                     <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
                       <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}
 
-                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run an analysis to extract and track candidate action items." /> : <><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><OutcomeFilter value={outcomeFilter} onChange={setOutcomeFilter} /></div>
+                  {activeTab === "tasks" && <div id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" className="space-y-4">{!hasAnalysis ? <EmptyState icon={ClipboardList} title="No analyzed tasks" description="Run an analysis to extract and track candidate action items." /> : <><WhatChangedPanel diff={changeDiff} /><div className="flex flex-col gap-3 sm:flex-row"><div className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="task-search" className="sr-only">Search action items</label><input id="task-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search extracted tasks…" className="w-full rounded-lg border border-slate-700 bg-slate-950/50 py-2.5 pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15" /></div><div className="relative"><Filter size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /><label htmlFor="urgency-filter" className="sr-only">Filter by urgency</label><select id="urgency-filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 py-2.5 pl-9 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All urgencies</option><option>High</option><option>Medium</option><option>Low</option></select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><div className="relative"><label htmlFor="status-filter" className="sr-only">Filter by review status</label><select id="status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full appearance-none rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2.5 pr-8 text-xs font-semibold text-slate-200 focus:border-cyan-300/60 focus:outline-none focus:ring-4 focus:ring-indigo-400/15"><option value="All">All statuses</option>{TASK_STATUSES.map((status) => <option key={status} value={status}>{TASK_STATUS_LABELS[status]}</option>)}</select><ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" /></div><OutcomeFilter value={outcomeFilter} onChange={setOutcomeFilter} /></div>
                     {analysis.actions.length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">{TASK_STATUSES.map((status) => <div key={status} className="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-[0_8px_22px_rgba(2,6,23,0.16)]"><p className="text-lg font-bold tabular-nums text-white">{taskStatusCounts[status]}</p><p className="text-[11px] leading-4 text-slate-400">{TASK_STATUS_LABELS[status]}</p></div>)}</div>}
                     {possibleCount > 0 && <p className="rounded-lg border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 text-xs leading-5 text-amber-100" role="note">{possibleCount} of {analysis.actions.length} task{analysis.actions.length === 1 ? " is" : "s are"} marked <strong>Possible · review</strong>: the wording suggests a task but the evidence is weaker (an implied request, no named deliverable, or a suggestion). Confirm or reject each one.</p>}
                     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
@@ -558,7 +790,7 @@ export default function App() {
                       <TaskSourcePane snapshot={sourceSnapshot} selection={selectedSource} />
                     </div>
                     <ReviewQueue items={analysis.reviewQueue || []} decisions={reviewDecisions} onShowSource={showSourceInInput} onPromote={promoteReviewItem} onReject={rejectReviewItem} />
-                    {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review changes last for this page session.</p>}</>}</div>}
+                    {analysis.actions.length > 0 && <p className="text-xs text-slate-400">{taskStatusCounts["needs-review"]} need review · {taskStatusCounts.confirmed} confirmed · {taskStatusCounts["in-progress"]} in progress · {completedCount} completed · {taskStatusCounts.rejected} rejected. Review decisions remain in memory unless local saving is enabled.</p>}</>}</div>}
 
                   {activeTab === "matrix" && <div id="panel-matrix" role="tabpanel" aria-labelledby="tab-matrix" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Target} title="Priority view is waiting" description="Run local analysis to identify candidate tasks and their supporting signals." /> : <>
                     <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-slate-100">Unique priority items</p><Badge tone="blue">{priorityView.uniquePriorityCount} counted once</Badge></div><p className="mt-1 text-xs leading-5 text-slate-400">Action candidates are the primary items. A deadline or urgency marker from the same recognized source message is attached as context, not counted as another alert.</p><div className="mt-3 grid grid-cols-3 gap-2">{[{ name: "High", count: priorityView.counts.High, tone: "red", icon: ArrowUpRight, note: "Review first" }, { name: "Medium", count: priorityView.counts.Medium, tone: "amber", icon: Activity, note: "Plan next" }, { name: "Low", count: priorityView.counts.Low, tone: "slate", icon: ArrowDownRight, note: "Keep in view" }].map((group) => { const Icon = group.icon; return <div key={group.name} className={cx("rounded-2xl border p-4 shadow-[0_10px_26px_rgba(2,6,23,0.18)] transition-all duration-200 hover:-translate-y-0.5", group.tone === "red" ? "border-rose-300/20 bg-rose-400/[0.06]" : group.tone === "amber" ? "border-amber-300/20 bg-amber-300/[0.05]" : "border-slate-700/60 bg-slate-950/35")}><div className="flex items-center justify-between gap-1"><p className={cx("text-xs font-bold", group.tone === "red" ? "text-rose-200" : group.tone === "amber" ? "text-amber-200" : "text-slate-300")}>{group.name}</p><Icon size={14} aria-hidden="true" /></div><p className="mt-2 text-2xl font-extrabold tabular-nums text-white">{group.count}</p><p className="mt-1 text-[11px] text-slate-400">{group.note}</p></div>; })}</div></div>
