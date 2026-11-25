@@ -50,6 +50,17 @@ test("'Sure, I'll send it' refines the one matching task already assigned to the
   assert.ok(a[0].supportingDetails.some((item) => item.text === "Sure, I'll send it." && item.kind === "acknowledgement"));
 });
 
+test("pronoun-only commitment stays ambiguous when the speaker has two open assignments", async () => {
+  const a = await run([
+    "[10:00, 02/11/2026] Rahul: Priya, please send the report.",
+    "[10:01, 02/11/2026] Rahul: Priya, please update the deck.",
+    "[10:05, 02/11/2026] Priya: Sure, I'll handle it.",
+  ]);
+  assert.equal(a.filter((task) => task.owner === "Priya").length, 2);
+  assert.equal(a.filter((task) => /handle it/i.test(task.text)).length, 0,
+    "a pronoun commitment must not silently attach to an arbitrary open task");
+});
+
 test("'Will do.' answers the request directly before it, not an older task of the same speaker", async () => {
   const a = await run([
     "[10:00, 02/11/2026] Priya: Rahul, please send the brochure by Friday.",

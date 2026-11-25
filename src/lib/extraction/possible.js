@@ -178,7 +178,7 @@ export function extractReviewQueue(text, options = {}, confirmedActions = []) {
 
       queue.push({
         id: `queue-${record.ordinal}-${frame.reason}`,
-        text: body.length > 220 ? `${body.slice(0, 217)}…` : body,
+        text: body,
         sourceText: record.rawText || record.text,
         owner,
         requestedBy: frame.commitment ? null : speaker,

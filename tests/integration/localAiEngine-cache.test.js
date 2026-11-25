@@ -6,7 +6,23 @@ import {
   clearLegacySessionCache,
   invalidateAnalysisWork,
   isAnalysisGenerationCurrent,
+  MAX_ANALYSIS_CHARACTERS,
+  validateAnalysisInputSize,
 } from "../../src/lib/ai/localAiEngine.js";
+
+test("analysis input size rejects non-strings and enforces the exact character boundary", () => {
+  for (const value of [null, undefined, 7]) {
+    const invalid = validateAnalysisInputSize(value);
+    assert.equal(invalid.valid, false);
+    assert.equal(invalid.length, null);
+    assert.match(invalid.message, /Input must be a string/);
+  }
+  assert.equal(validateAnalysisInputSize("").valid, true);
+  assert.equal(validateAnalysisInputSize("x".repeat(MAX_ANALYSIS_CHARACTERS)).valid, true);
+  const oversized = validateAnalysisInputSize("x".repeat(MAX_ANALYSIS_CHARACTERS + 1));
+  assert.equal(oversized.valid, false);
+  assert.match(oversized.message, /60,000 character limit/);
+});
 
 function createMemoryStorage(initial = {}) {
   const values = new Map(Object.entries(initial));

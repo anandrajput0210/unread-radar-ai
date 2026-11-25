@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { analyzeConversations } from "../../src/lib/extraction/index.js";
+import { extractReviewQueue } from "../../src/lib/extraction/possible.js";
 import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
 
 const queue = (body) => analyzeConversations(`[10:00, 02/11/2026] Anita: ${body}`).reviewQueue;
@@ -21,6 +22,14 @@ test("prohibitions never enter the possible-task queue (English, Hinglish, Devan
 test("genuine soft requests still reach the review queue", () => {
   assert.equal(queue("Can you maybe look at the logs sometime").length, 1);
   assert.equal(queue("Don't forget the invoice by Friday").length, 1);
+});
+
+test("review candidates preserve long descriptions without truncating actionable source text", () => {
+  const body = `Could you maybe look at the logs and compare each entry with the deployment timeline? ${"Include the related context and exact sequence. ".repeat(8)}`;
+  const [candidate] = extractReviewQueue(`[10:00, 02/11/2026] Anita: ${body}`);
+  assert.ok(candidate);
+  assert.equal(candidate.text, body.trim());
+  assert.ok(candidate.text.length > 220);
 });
 
 test("the review queue survives the engine adapter with validated evidence", async () => {
