@@ -1,0 +1,136 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
+import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
+import { listSpeakers } from "../../src/lib/views/catchUpBrief.js";
+import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
+import { buildTaskWhy } from "../../src/lib/views/taskWhy.js";
+
+async function analyzeChat(text) {
+  const [analysis, snapshot] = await Promise.all([
+    analyzeTextWithRules(text),
+    createSourceSnapshot(text),
+  ]);
+  return {
+    analysis,
+    snapshot,
+    messages: snapshot.messages,
+    speakers: listSpeakers(snapshot),
+  };
+}
+
+test("unknown owner is not attributed to a speaker", () => {
+  const result = buildTaskWhy({
+    text: "Send the report",
+    owner: null,
+    sourceReferenceStatus: "valid",
+  }, {
+    messages: [{ authorRaw: "Alex Johnson", startOffset: 0, endOffset: 20, rawText: "Alex Johnson: Send the report" }],
+    speakers: ["Alex Johnson", "Maria Garcia"],
+  });
+
+  assert.equal(result.ownerBasis.status, "unknown");
+  assert.equal(result.ownerBasis.reason, "No owner could be established from this chat.");
+  assert.doesNotMatch(result.ownerBasis.reason, /Alex Johnson|Maria Garcia/u);
+});
+
+test("an owner matching two speakers is shown as ambiguous without naming either", () => {
+  const result = buildTaskWhy({
+    text: "Review the plan",
+    owner: "Alex",
+    sourceEvidence: { quote: "Please review the plan" },
+  }, {
+    messages: [],
+    speakers: ["Alex Johnson", "Alex Chen"],
+  });
+
+  assert.equal(result.ownerBasis.status, "ambiguous");
+  assert.doesNotMatch(result.ownerBasis.reason, /Alex Johnson|Alex Chen/u);
+});
+
+test("possible tasks carry an explicit review caveat", () => {
+  const result = buildTaskWhy({
+    text: "Review the draft",
+    owner: null,
+    outcome: "possible",
+  }, { messages: [], speakers: [] });
+
+  assert.ok(result.caveats.includes("Possible task - not confirmed"));
+});
+
+test("contextual timing is labelled as inferred from context", () => {
+  const result = buildTaskWhy({
+    text: "Send the invoice",
+    dueDate: "kal tak",
+    dueDateStatus: "contextual",
+    resolvedDueDate: null,
+  }, { messages: [], speakers: [] });
+
+  assert.equal(result.timing.status, "contextual");
+  assert.match(result.timing.text, /inferred from context/i);
+});
+
+test("English and Hinglish samples retain their source-grounded owners and evidence", async () => {
+  const english = await analyzeChat(SAMPLE_CHATS.english);
+  const englishTask = english.analysis.actions[0];
+  const englishWhy = buildTaskWhy(englishTask, english);
+  assert.equal(englishTask.owner, "Maria");
+  assert.equal(english.analysis.actions.length, 1);
+  assert.equal(englishWhy.evidence.quote, englishTask.sourceEvidence.quote);
+  assert.equal(englishWhy.evidence.messageIndex, 0);
+  assert.equal(englishWhy.ownerBasis.status, "named-in-request");
+  assert.equal(englishWhy.timeline[1].speaker, "Maria Garcia");
+  assert.equal(englishWhy.timeline[1].messageIndex, 1);
+
+  const hinglish = await analyzeChat(SAMPLE_CHATS.hinglish);
+  const hinglishTask = hinglish.analysis.actions[0];
+  const hinglishWhy = buildTaskWhy(hinglishTask, hinglish);
+  assert.equal(hinglishTask.owner, "Vikram");
+  assert.match(hinglishTask.text, /GST invoice/i);
+  assert.equal(hinglishWhy.evidence.quote, hinglishTask.sourceEvidence.quote);
+  assert.equal(hinglishWhy.evidence.messageIndex, 0);
+  assert.equal(hinglishWhy.ownerBasis.status, "named-in-request");
+});
+
+test("fixture tasks produce a single request event when no lifecycle event exists", async () => {
+  const text = await readFile(new URL("../fixtures/accuracy-chat-1-product-launch.txt", import.meta.url), "utf8");
+  const context = await analyzeChat(text);
+  const task = context.analysis.actions.find((item) => item.text.includes("pricing section"));
+  assert.ok(task, "expected the fixture's pricing review task");
+  assert.equal(task.owner, "Elena Ruiz");
+  assert.equal(task.lifecycleEvents.length, 0);
+
+  const result = buildTaskWhy(task, context);
+  assert.equal(result.timeline.length, 1);
+  assert.equal(result.timeline[0].type, "request");
+  assert.match(result.timeline[0].quote, /I can review the pricing section/u);
+});
+
+test("acknowledged sample task shows acknowledgement without inventing completion", async () => {
+  const context = await analyzeChat(SAMPLE_CHATS.english);
+  const task = context.analysis.actions[0];
+  const result = buildTaskWhy(task, context);
+
+  assert.deepEqual(result.timeline.map((event) => event.type), ["request", "acknowledged"]);
+  assert.ok(result.timeline.every((event) => typeof event.quote === "string" && event.quote.length > 0));
+  assert.equal(result.timeline.some((event) => event.type === "completed"), false);
+});
+
+test("incident-response fixture owner is grounded in the speaker's own commitment", async () => {
+  const text = await readFile(new URL("../fixtures/accuracy-chat-2-incident-response.txt", import.meta.url), "utf8");
+  const context = await analyzeChat(text);
+  const task = context.analysis.actions.find((item) => item.text.includes("inspect the logs"));
+  assert.ok(task, "expected the fixture's log-inspection task");
+  assert.equal(task.owner, "Raj Mehta");
+
+  const result = buildTaskWhy(task, context);
+  assert.equal(result.ownerBasis.status, "claimed-by-speaker");
+  assert.equal(result.timeline[0].speaker, "Raj Mehta");
+});
+
+test("why output does not introduce prohibited past-due wording", async () => {
+  const context = await analyzeChat(SAMPLE_CHATS.english);
+  const output = JSON.stringify(buildTaskWhy(context.analysis.actions[0], context));
+  assert.doesNotMatch(output, /\b(?:missed|overdue)\b/iu);
+});
