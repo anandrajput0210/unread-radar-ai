@@ -1,5 +1,12 @@
 # Changelog
 
+## Presentation and catch-up brief documentation — 2026-11-25
+
+- Added project overview, architecture, examples, limitations, and clearly labelled synthetic regression results to the README.
+- Added one-click English and Hinglish sample conversations for a quick local demonstration.
+- Documented the catch-up brief's identity, assignment, lifecycle, and past-due safeguards.
+- Declared the MIT license and Node.js 20+ requirement in package metadata.
+
 ## Explicit WebLLM opt-in and rules-only default — 2026-11-07
 
 - Rules-only analysis is now the default and does not request WebGPU, import WebLLM, or download model assets.
