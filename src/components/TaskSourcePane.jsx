@@ -16,7 +16,7 @@ export function TaskSourcePane({ snapshot, selection }) {
   }, [selectedIndex, selection?.navigationId]);
 
   return (
-    <aside className="min-w-0 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-3" aria-label="Conversation source">
+    <aside className="min-w-0 self-start rounded-2xl border border-slate-700/60 bg-slate-950/45 p-3" aria-label="Conversation source">
       <div className="mb-3">
         <h3 className="text-sm font-bold text-slate-100">Conversation source</h3>
         <p className="mt-1 text-[11px] leading-4 text-slate-400">Messages are shown from the analyzed source snapshot.</p>

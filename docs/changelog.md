@@ -1,5 +1,13 @@
 # Changelog
 
+## Trust UI — 2026-11-25
+
+- Added a display-only “Why this task?” panel for owner basis, timing, lifecycle events, exact evidence, and caveats.
+- Added a split task/source view that displays messages from the existing source snapshot and highlights only a valid reference from that snapshot.
+- Kept source-reference validity separate from task meaning, owner attribution, lifecycle, and human review.
+- Kept unknown and ambiguous owners unresolved; contextual timing is labelled as inferred from context.
+- Updated past-due explanation wording to state that the conversation may not contain the completion outcome.
+
 ## Presentation and catch-up brief documentation — 2026-11-25
 
 - Added project overview, architecture, examples, limitations, and clearly labelled synthetic regression results to the README.

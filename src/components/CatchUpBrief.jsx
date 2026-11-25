@@ -60,7 +60,7 @@ export function CatchUpBrief({ actions, snapshot, statuses, me, onChangeMe, asOf
       {brief.needsIdentity && <p className="text-xs text-amber-200">Choose who you are to see what is assigned to you. Until then, no task is shown as yours.</p>}
       {brief.identityNotInChat && <p className="text-xs text-amber-200">The person you chose does not speak in this chat, so nothing is shown as yours.</p>}
       {asOf && !brief.asOfValid && <p className="text-xs text-amber-200">That date is not valid, so past-due checks are off.</p>}
-      <p className="text-xs text-slate-400">{brief.counts.open} open · {brief.counts.done} closed · {brief.counts.pastDue} past due as of {brief.asOfValid ? asOf : "(no date)"}. Past due means a stated deadline has passed and no completion message was found in this chat. It does not mean the work was missed.</p>
+      <p className="text-xs text-slate-400">{brief.counts.open} open · {brief.counts.done} closed · {brief.counts.pastDue} past due as of {brief.asOfValid ? asOf : "(no date)"}. Past due means a stated deadline has passed and no completion message was found in this chat. The work may have been completed outside this conversation.</p>
       {empty && <p className="text-xs text-slate-400">Nothing open to catch up on.</p>}
       <Group title="Assigned to you" tasks={g.assignedToYou} tone="blue" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Might be you" hint="The owner name could match more than one person in this chat." tasks={g.mightBeYou} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />

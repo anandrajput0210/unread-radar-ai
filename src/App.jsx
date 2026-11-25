@@ -492,7 +492,7 @@ export default function App() {
             </div>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
+          <section className={cx("grid gap-6", activeTab === "tasks" ? "" : "xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]")}>
             <div className="rounded-2xl border border-slate-700/50 bg-slate-900/45 p-4 shadow-[0_18px_55px_rgba(2,6,23,0.26)] backdrop-blur-xl sm:p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log, or try a short built-in example.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Raw conversation text, source snapshots, excerpts, and findings remain memory-only. Up to three analysis results may be cached in memory until cleared or the page is closed. Unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
