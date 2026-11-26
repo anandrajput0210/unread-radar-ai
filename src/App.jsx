@@ -23,6 +23,7 @@ import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 import { SAMPLE_CHATS } from "./lib/sampleChats.js";
 import { TRAP_CHATS } from "./lib/trapChats.js";
+import { selectAnalysisMode } from "./lib/ai/modelConsent.js";
 import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
 import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
 import { diffSessions } from "./lib/views/whatChanged.js";
@@ -398,7 +399,14 @@ export default function App() {
     const runId = ++activeRunRef.current;
     const startedAt = Date.now();
     const modelWasReady = modelState.state === "ready";
+    const selectedMode = selectAnalysisMode(useLocalModel, (message) => window.confirm(message));
+    const modelConsentDeclined = useLocalModel && selectedMode === "rules-only";
     let usedCachedResult = false;
+
+    if (modelConsentDeclined) {
+      setUseLocalModel(false);
+      setModelState({ state: "rules-only", progress: 0, message: "Rules-only mode selected" });
+    }
 
     setIsAnalyzing(true);
     setHasAnalysis(false);
@@ -414,7 +422,6 @@ export default function App() {
       if (runId !== activeRunRef.current) return;
       setSourceSnapshot(snapshot);
 
-      const selectedMode = useLocalModel ? "local-model" : "rules-only";
       setAnalysisStatus({
         type: "progress",
         message: selectedMode === "local-model"
@@ -481,6 +488,8 @@ export default function App() {
         : ` ${snapshot.messages.length} source messages recognized.`) + describeImportWarnings(snapshot);
       const inferenceNote = execution.fallbackReason
         ? `Local AI unavailable; rules-only fallback completed (${execution.fallbackReason})`
+        : modelConsentDeclined
+          ? "Model cancelled; rules-only analysis completed"
         : execution.mode === "rules-only"
           ? "Rules-only analysis completed; WebLLM was not loaded"
           : usedCachedResult
@@ -516,7 +525,7 @@ export default function App() {
       setActiveTab("summary");
     } catch (error) {
       if (runId !== activeRunRef.current) return;
-      if (useLocalModel && !modelWasReady) {
+      if (selectedMode === "local-model" && !modelWasReady) {
         setModelState((current) => ({ ...current, state: "error", message: "Local model unavailable" }));
       }
       setAnalysisStatus({ type: "error", message: error instanceof Error ? error.message : "Local analysis failed. Check WebGPU support and try again." });
