@@ -22,6 +22,7 @@ import { TASK_STATUSES, TASK_STATUS_LABELS, countTaskStatuses, getTaskStatus, pr
 import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 import { SAMPLE_CHATS } from "./lib/sampleChats.js";
+import { TRAP_CHATS } from "./lib/trapChats.js";
 import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
 import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
 import { diffSessions } from "./lib/views/whatChanged.js";
@@ -304,6 +305,11 @@ export default function App() {
   function loadSampleChat(language) {
     handleTextChange(SAMPLE_CHATS[language]);
     setFileStatus({ type: "success", message: `${language === "hinglish" ? "Hinglish" : "English"} sample loaded locally. Choose an analysis mode when ready.` });
+  }
+
+  function loadTrapChat(name) {
+    handleTextChange(TRAP_CHATS[name]);
+    setFileStatus({ type: "success", message: "Trap chat loaded locally. Choose an analysis mode when ready." });
   }
 
   function handleLocalFile(file) {
@@ -736,6 +742,13 @@ export default function App() {
               <div className="mb-3 flex flex-wrap gap-2" aria-label="Sample conversations">
                 <button type="button" onClick={() => loadSampleChat("english")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try English sample</button>
                 <button type="button" onClick={() => loadSampleChat("hinglish")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try Hinglish sample</button>
+              </div>
+              <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Trap chats">
+                <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">Trap chats</span>
+                <button type="button" aria-label="Load vague owner trap chat" onClick={() => loadTrapChat("vague-someone")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Vague owner</button>
+                <button type="button" aria-label="Load ambiguous handoff trap chat" onClick={() => loadTrapChat("ambiguous-handoff")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Unclear handoff</button>
+                <button type="button" aria-label="Load kal dekhenge trap chat" onClick={() => loadTrapChat("kal-dekhenge")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Tomorrow maybe</button>
+                <button type="button" aria-label="Load same first name trap chat" onClick={() => loadTrapChat("same-first-name")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Same first name</button>
               </div>
               <section className="mb-4 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3" aria-label="On-device persistence controls">
                 <label htmlFor="save-analysis-locally" className="flex cursor-pointer items-start gap-3">
