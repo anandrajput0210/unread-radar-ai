@@ -2,9 +2,19 @@
 
 **Turn a long chat export into an evidence-linked catch-up brief, locally in your browser.**
 
-> **Live demo:** Not configured in this repository.
+> **Live demo:** Not deployed yet.
 >
-> **Screenshots/GIF:** None are included; no visual evidence is claimed.
+> **English sample and catch-up brief**
+>
+> ![English sample analyzed with the catch-up brief visible](docs/images/brief.png)
+>
+> **Why panel with its source message highlighted**
+>
+> ![Why panel expanded with the source message highlighted](docs/images/why-panel.png)
+>
+> **Abstention without a guessed owner**
+>
+> ![Trap chat showing an unassigned possible task and the Not guessing explanation](docs/images/abstention.png)
 
 ## What it does
 
