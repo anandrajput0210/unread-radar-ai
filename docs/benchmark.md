@@ -36,6 +36,6 @@ A separate injected-model test verifies a safety rule: if a model proposes a tas
 
 ## Current split availability
 
-The committed V2 report is for the synthetic development split only. The benchmark loader reads `.chat` files from `benchmark/data/<split>/`; the private `benchmark/data/holdout/` directory is git-ignored and is not present in this checkout. The tracked flat `benchmark/data/holdout-v0.chats.txt` file is not loaded by that split loader and is not evidence of an available sealed evaluation set. No independent real-world labelled holdout or results are included.
+The committed V2 report is for the synthetic development split only. The benchmark loader reads `.chat` files from `benchmark/data/<split>/`; the private `benchmark/data/holdout/` directory is git-ignored and is not present in this checkout. The tracked flat `benchmark/data/dev-v0.chats.txt` file is public development data and is not loaded by that split loader. No sealed holdout currently exists, and no independent real-world labelled holdout or results are included.
 
 Do not report a sealed-holdout result unless an authorized, still-blind set is supplied outside version control and its annotation process is documented. A synthetic regression score does not establish real-world accuracy.

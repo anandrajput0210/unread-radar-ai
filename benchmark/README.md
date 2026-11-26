@@ -31,9 +31,9 @@ you have read) stops being blind. Keep it in a private location, copy it in loca
 `npm run bench:holdout` reports that no data is available and exits with a non-zero status; the
 development test and V2 commands do not run a holdout.
 
-The private directory is not present in this checkout. The tracked flat
-`benchmark/data/holdout-v0.chats.txt` file is not read by `loadSplit`, which only loads `.chat`
-files inside a split directory. It is not a currently available sealed evaluation set.
+The private directory is not present in this checkout, so no sealed holdout currently exists. The
+tracked flat `benchmark/data/dev-v0.chats.txt` file is public development data, not a holdout. It
+is not read by `loadSplit`, which only loads `.chat` files inside a split directory.
 
 ## Independent holdout annotation workflow
 

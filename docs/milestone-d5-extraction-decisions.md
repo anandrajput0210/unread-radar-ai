@@ -26,4 +26,4 @@ A subsequent unique, recent progress update such as `Dev: Deploying now` can cla
 
 ## Verification
 
-The active regressions live in `tests/unit/knownGaps.test.js`. The blind holdout remains excluded. Development benchmark results are synthetic/tuned and must not be presented as real-world accuracy.
+The active regressions live in `tests/unit/knownGaps.test.js`. No sealed holdout currently exists. Development benchmark results are synthetic/tuned and must not be presented as real-world accuracy.
