@@ -52,6 +52,7 @@ function buildExtraction(task) {
     : "unknown";
   return {
     status,
+    reviewReason: status === "possible" ? "Not confirmed. Needs a human look." : null,
     label: status === "possible"
       ? "Possible candidate"
       : status === "confirmed" ? "Confirmed extraction" : "No extraction outcome recorded",
@@ -96,19 +97,19 @@ function buildOwnerBasis(task, speakers) {
     if (task?.classification === "unassigned_request" || task?.classification === "unassigned_action") {
       return {
         status: "unassigned-request",
-        reason: "The extracted request or action does not name an individual owner.",
+        reason: "No owner was named or claimed in this chat. Not guessing.",
       };
     }
     return {
       status: "unknown",
-      reason: "No owner could be established from this chat.",
+      reason: "No owner was named or claimed in this chat. Not guessing.",
     };
   }
 
   if (matchingSpeakers(owner, speakers).length > 1) {
     return {
       status: "ambiguous",
-      reason: "This owner name matches more than one speaker in the chat.",
+      reason: "More than one person could match. Not guessing.",
     };
   }
 

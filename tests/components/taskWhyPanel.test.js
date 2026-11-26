@@ -4,6 +4,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import reactPlugin from "@vitejs/plugin-react";
 import { createServer } from "vite";
+import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
+import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
+import { listSpeakers } from "../../src/lib/views/catchUpBrief.js";
+import { TRAP_CHATS } from "../../src/lib/trapChats.js";
 
 let viteServer;
 let TaskWhyPanel;
@@ -28,10 +32,10 @@ after(async () => {
   await viteServer?.close();
 });
 
-function render(task, speakers = [], reviewStatus) {
+function render(task, speakers = [], reviewStatus, messages = []) {
   return renderToStaticMarkup(React.createElement(TaskWhyPanel, {
     task,
-    messages: [],
+    messages,
     speakers,
     reviewStatus,
   }));
@@ -54,7 +58,7 @@ test("unknown-owner panel states that no owner was established without naming a 
     lifecycleEvents: [],
   }, ["Alex Johnson"]);
 
-  assert.match(markup, /No owner could be established from this chat\./u);
+  assert.match(markup, /No owner was named or claimed in this chat\. Not guessing\./u);
   assert.doesNotMatch(markup, /Alex Johnson/u);
 });
 
@@ -99,6 +103,44 @@ test("accepted possible task labels extractor outcome separately from human revi
   assert.match(markup, /Possible candidate/u);
   assert.match(markup, /Accepted for tracking by you/u);
   assert.doesNotMatch(markup, /Possible task - not confirmed/u);
+});
+
+test("trap-chat panels show exact abstention reasons without naming speakers", async () => {
+  const expectedReasons = {
+    "vague-someone": "No owner was named or claimed in this chat. Not guessing.",
+    "ambiguous-handoff": "No owner was named or claimed in this chat. Not guessing.",
+    "kal-dekhenge": "No owner was named or claimed in this chat. Not guessing.",
+    "same-first-name": "More than one person could match. Not guessing.",
+  };
+
+  for (const [name, chat] of Object.entries(TRAP_CHATS)) {
+    const [analysis, snapshot] = await Promise.all([
+      analyzeTextWithRules(chat),
+      createSourceSnapshot(chat),
+    ]);
+    const speakers = listSpeakers(snapshot);
+    const task = name === "same-first-name"
+      ? analysis.actions.find((item) => item.text.includes("draft invoice"))
+      : analysis.actions.find((item) => item.text.includes("invoice mismatch"))
+        ?? analysis.actions[0];
+    const markup = render(task ?? {
+      id: `${name}-unknown`,
+      text: "No extracted task",
+      owner: null,
+      outcome: "confirmed",
+      lifecycleEvents: [],
+    }, speakers, undefined, snapshot.messages);
+    const ownerSection = markup.match(/<section aria-label="Owner basis">([\s\S]*?)<\/section>/u)?.[1];
+
+    assert.ok(ownerSection, `${name} panel should render the owner-basis section`);
+    assert.ok(ownerSection.includes(expectedReasons[name]), `${name} panel should show the exact reason`);
+    for (const speaker of speakers) {
+      assert.ok(!ownerSection.includes(speaker), `${name} owner reason must not name ${speaker}`);
+    }
+    if (name === "vague-someone") {
+      assert.ok(markup.includes("Not confirmed. Needs a human look."));
+    }
+  }
 });
 
 test("manually confirmed possible task keeps its extractor label without a review warning", () => {

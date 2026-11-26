@@ -5,6 +5,7 @@ import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
 import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
 import { listSpeakers } from "../../src/lib/views/catchUpBrief.js";
 import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
+import { TRAP_CHATS } from "../../src/lib/trapChats.js";
 import { buildTaskWhy } from "../../src/lib/views/taskWhy.js";
 
 async function analyzeChat(text) {
@@ -31,7 +32,7 @@ test("unknown owner is not attributed to a speaker", () => {
   });
 
   assert.equal(result.ownerBasis.status, "unknown");
-  assert.equal(result.ownerBasis.reason, "No owner could be established from this chat.");
+  assert.equal(result.ownerBasis.reason, "No owner was named or claimed in this chat. Not guessing.");
   assert.doesNotMatch(result.ownerBasis.reason, /Alex Johnson|Maria Garcia/u);
 });
 
@@ -46,6 +47,7 @@ test("an owner matching two speakers is shown as ambiguous without naming either
   });
 
   assert.equal(result.ownerBasis.status, "ambiguous");
+  assert.equal(result.ownerBasis.reason, "More than one person could match. Not guessing.");
   assert.doesNotMatch(result.ownerBasis.reason, /Alex Johnson|Alex Chen/u);
 });
 
@@ -92,7 +94,7 @@ test("collective and unassigned requests are not attributed to an individual", (
   assert.equal(collective.ownerBasis.status, "collective");
   assert.match(collective.ownerBasis.reason, /collective|no individual owner/i);
   assert.equal(unassigned.ownerBasis.status, "unassigned-request");
-  assert.match(unassigned.ownerBasis.reason, /does not name an individual owner/i);
+  assert.equal(unassigned.ownerBasis.reason, "No owner was named or claimed in this chat. Not guessing.");
   assert.doesNotMatch(JSON.stringify([collective.ownerBasis, unassigned.ownerBasis]), /Alex|Priya/u);
 });
 
@@ -116,6 +118,7 @@ test("possible tasks carry an explicit review caveat", () => {
   }, { messages: [], speakers: [] });
 
   assert.ok(result.caveats.includes("Possible task - not confirmed"));
+  assert.equal(result.extraction.reviewReason, "Not confirmed. Needs a human look.");
 });
 
 test("extractor outcome and explicit human acceptance remain separate", () => {
@@ -207,4 +210,34 @@ test("why output does not introduce prohibited past-due wording", async () => {
   const context = await analyzeChat(SAMPLE_CHATS.english);
   const output = JSON.stringify(buildTaskWhy(context.analysis.actions[0], context));
   assert.doesNotMatch(output, /\b(?:missed|overdue)\b/iu);
+});
+
+test("trap-chat abstention explanations are exact and do not name speakers", async () => {
+  const expectedReasons = {
+    "vague-someone": "No owner was named or claimed in this chat. Not guessing.",
+    "ambiguous-handoff": "No owner was named or claimed in this chat. Not guessing.",
+    "kal-dekhenge": "No owner was named or claimed in this chat. Not guessing.",
+    "same-first-name": "More than one person could match. Not guessing.",
+  };
+
+  for (const [name, text] of Object.entries(TRAP_CHATS)) {
+    const context = await analyzeChat(text);
+    const task = name === "same-first-name"
+      ? context.analysis.actions.find((item) => item.text.includes("draft invoice"))
+      : context.analysis.actions.find((item) => item.text.includes("invoice mismatch"))
+        ?? context.analysis.actions[0];
+    const result = buildTaskWhy(task ?? {
+      text: "No extracted task",
+      owner: null,
+      outcome: "confirmed",
+    }, context);
+
+    assert.equal(result.ownerBasis.reason, expectedReasons[name], name);
+    for (const speaker of context.speakers) {
+      assert.ok(!result.ownerBasis.reason.includes(speaker), `${name} reason named ${speaker}`);
+    }
+    if (name === "vague-someone") {
+      assert.equal(result.extraction.reviewReason, "Not confirmed. Needs a human look.");
+    }
+  }
 });

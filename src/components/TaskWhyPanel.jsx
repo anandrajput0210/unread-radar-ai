@@ -61,6 +61,11 @@ export function TaskWhyPanel({ task, messages, speakers, reviewStatus, onShowSou
             {why.extraction.label}
             {why.extraction.reason ? ` · ${why.extraction.reason}` : ""}
           </p>
+          {why.extraction.reviewReason && why.humanReview.status === "needs-review" && (
+            <p aria-label="Abstention reason" className="mt-1 text-xs font-semibold leading-5 text-amber-100">
+              {why.extraction.reviewReason}
+            </p>
+          )}
           <h4 className="mt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">Human review</h4>
           <p className="mt-1 text-xs leading-5 text-slate-200">{why.humanReview.text}</p>
         </section>
