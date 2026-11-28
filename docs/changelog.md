@@ -2,6 +2,7 @@
 
 ## Ambiguous first-name owner safety — 2026-11-28
 
+- Fixed in `e66b3f7`: Phase 5 documented the same-first-name Ravi addressee as a confirmed owner and skipped the regression test.
 - Leave a name-only owner unknown when multiple chat participants match, while preserving unique-name resolution and speaker claims.
 - Keep ambiguous tasks out of person-assigned catch-up groups and show the ambiguity reason in the Why panel.
 - Record owner changes to an ambiguous/unknown value in the persistence comparison.
