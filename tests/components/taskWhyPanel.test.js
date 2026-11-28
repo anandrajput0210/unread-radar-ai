@@ -94,6 +94,23 @@ test("the input panel renders the one-click demo and load-and-analyze variants",
   assert.match(markup, /aria-label="Load and analyze same first name trap chat"/u);
 });
 
+test("the header summary is visible and privacy details stay collapsed with the original caveats", () => {
+  const markup = renderToStaticMarkup(React.createElement(App));
+  const disclosure = markup.match(/<details\b([^>]*)>([\s\S]*?)<\/details>/u);
+
+  assert.match(markup, /Shows who owes what, with the exact message as proof\. Says &#x27;Not guessing&#x27; when it can&#x27;t tell\./u);
+  assert.match(markup, /Runs in your browser/u);
+  assert.match(markup, /Exact-quote evidence/u);
+  assert.match(markup, /English \+ Hinglish/u);
+  assert.ok(disclosure);
+  assert.doesNotMatch(disclosure[1], /\bopen(?:=|\s|>)/u);
+  assert.match(disclosure[2], /Only analyze conversations you are authorized to use\./u);
+  assert.match(disclosure[2], /Chat text and source snapshots stay in memory by default\./u);
+  assert.match(disclosure[2], /This storage is not encrypted and clearing it does not guarantee forensic erasure\./u);
+  assert.match(disclosure[2], /When unchecked, analysis uses deterministic local patterns only/u);
+  assert.match(disclosure[2], /AI output can contain errors\. Verify important dates, owners, decisions, and urgency classifications against the original conversation\./u);
+});
+
 test("possible-task panel renders its explicit caveat", () => {
   const markup = render({
     id: "possible-task",

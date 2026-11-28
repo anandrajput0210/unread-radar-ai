@@ -42,13 +42,7 @@ export function ComparisonPanel({
   const selectedEntries = (Array.isArray(entries) ? entries : [])
     .filter((entry) => entry?.trapChatId === trapChatId);
 
-  if (!selectedEntries.length) {
-    return (
-      <section className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-4" aria-label="Compare with a general-purpose AI">
-        <p className="text-xs text-slate-400">No recorded comparison for this chat yet.</p>
-      </section>
-    );
-  }
+  if (!selectedEntries.length) return null;
 
   return (
     <section className="space-y-4 rounded-2xl border border-slate-700/60 bg-slate-900/45 p-4" aria-label="Compare with a general-purpose AI">

@@ -28,16 +28,13 @@ function render(props) {
   return renderToStaticMarkup(React.createElement(ComparisonPanel, props));
 }
 
-test("empty manifest renders only the comparison empty-state message", () => {
+test("empty manifest renders no comparison panel", () => {
   const markup = render({
     trapChatId: "same-first-name",
     analysis: { actions: [], reviewQueue: [] },
     speakers: ["Asha Verma", "Ravi Mehta", "Ravi Shah"],
   });
-  const text = markup.replace(/<[^>]*>/gu, "").trim();
-
-  assert.equal(text, "No recorded comparison for this chat yet.");
-  assert.match(markup, /aria-label="Compare with a general-purpose AI"/u);
+  assert.equal(markup, "");
 });
 
 test("recorded comparison renders exact run label, prompt, and output beside live rules findings", () => {
