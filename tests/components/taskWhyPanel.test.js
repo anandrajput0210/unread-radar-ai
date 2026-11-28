@@ -17,6 +17,7 @@ let TaskWhyPanel;
 let TaskCard;
 let CatchUpBrief;
 let App;
+let SavedAnalysisRestoreCard;
 
 before(async () => {
   viteServer = await createServer({
@@ -30,6 +31,7 @@ before(async () => {
   ({ TaskWhyPanel } = await viteServer.ssrLoadModule("/src/components/TaskWhyPanel.jsx"));
   ({ TaskCard } = await viteServer.ssrLoadModule("/src/components/TaskCard.jsx"));
   ({ CatchUpBrief } = await viteServer.ssrLoadModule("/src/components/CatchUpBrief.jsx"));
+  ({ SavedAnalysisRestoreCard } = await viteServer.ssrLoadModule("/src/components/SavedAnalysisRestoreCard.jsx"));
   ({ default: App } = await viteServer.ssrLoadModule("/src/App.jsx"));
 });
 
@@ -214,6 +216,43 @@ test("possible-task panel renders its explicit caveat", () => {
   });
 
   assert.match(markup, /Possible task - not confirmed/u);
+});
+
+test("review state, disputed ownership, and conversation lifecycle render separately", () => {
+  const markup = renderCard({
+    id: "disputed-in-progress",
+    text: "Send the vendor quotation",
+    owner: null,
+    ownerBasis: "disputed",
+    lifecycleStatus: "in-progress",
+    outcome: "confirmed",
+    lifecycleEvents: [],
+  }, "needs-review");
+
+  assert.match(markup, /Human review status/u);
+  assert.match(markup, /Needs human review/u);
+  assert.match(markup, /Ownership disputed/u);
+  assert.match(markup, /Conversation lifecycle · In progress/u);
+  assert.doesNotMatch(markup, /Assigned task ·/u);
+});
+
+test("saved analysis card makes restore and dismiss explicit before replacing input", () => {
+  const markup = renderToStaticMarkup(React.createElement(SavedAnalysisRestoreCard, {
+    session: {
+      fingerprint: "fnv1a64:0123456789abcdef",
+      savedAt: "2026-11-25T12:00:00.000Z",
+      sourceText: "Asha: Neha, please send the vendor quotation.",
+    },
+    replaceInput: true,
+    onRestore() {},
+    onDismiss() {},
+  }));
+
+  assert.match(markup, /Saved analysis available/u);
+  assert.match(markup, /Asha: Neha, please send the vendor quotation\./u);
+  assert.match(markup, /Restoring replaces the current input and analysis\./u);
+  assert.match(markup, />Replace input and restore</u);
+  assert.match(markup, />Dismiss</u);
 });
 
 test("why panel renders the exact evidence quote", () => {

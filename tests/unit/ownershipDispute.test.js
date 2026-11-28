@@ -242,6 +242,8 @@ test("disputed ownership is accepted by persistence and reported as an owner cha
   };
   const saved = {
     fingerprint: fingerprint(disputedChat),
+    sourceText: disputedChat,
+    dateOrder: "auto",
     savedAt: "2026-11-25T12:00:00.000Z",
     schemaVersion: SCHEMA_VERSION,
     analysis: persistedAnalysis,
