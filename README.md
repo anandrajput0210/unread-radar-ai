@@ -2,19 +2,19 @@
 
 **Turn a long chat export into an evidence-linked catch-up brief, locally in your browser.**
 
-> **Live demo:** Not deployed yet.
+> Live demo: <to be added by owner>
 >
-> **English sample and catch-up brief**
+> **English sample follow-up preview**
 >
-> ![English sample analyzed with the catch-up brief visible](docs/images/brief.png)
+> ![English sample follow-up message preview with Maria as the confirmed owner](docs/images/brief.png)
 >
-> **Why panel with its source message highlighted**
+> **Why panel expanded**
 >
-> ![Why panel expanded with the source message highlighted](docs/images/why-panel.png)
+> ![Why panel for a possible unassigned task with its source message highlighted](docs/images/why-panel.png)
 >
 > **Abstention without a guessed owner**
 >
-> ![Trap chat showing an unassigned possible task and the Not guessing explanation](docs/images/abstention.png)
+> ![Same-first-name trap task remains unassigned with the ambiguous-owner explanation](docs/images/abstention.png)
 
 ## What it does
 
@@ -28,7 +28,7 @@ The deterministic rules engine runs by default. Optional Qwen analysis runs on-d
 - Keep extraction outcome separate from your review decision and reported conversation status.
 - Avoid guessing an owner when assignment is ambiguous.
 - Group open tasks by selected chat participant in the catch-up brief.
-- Distinguish an explicit past deadline from evidence that work was missed: the brief says **“no completion message found in this chat.”**
+- Distinguish an explicit past deadline from conversation evidence: the brief reports when no completion message appears in the chat.
 
 ## Try it in 30 seconds
 
@@ -37,7 +37,7 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite, choose **Try English sample** or **Try Hinglish sample**, and run the default rules-only analysis. Sample text is synthetic and included for demonstration; do not paste conversations you are not authorized to analyze.
+Open the local URL printed by Vite and choose **Run 60-second demo** for a one-click, rules-only walkthrough. It loads a synthetic conversation, opens the summary, selects its first task, and expands the evidence and explanation. Or choose **Load English and analyze** or **Load Hinglish and analyze** to inspect a sample. Sample text is synthetic and included for demonstration; do not paste conversations you are not authorized to analyze.
 
 ## Example
 
@@ -90,25 +90,15 @@ npm run build
 npm run dev
 ```
 
-The current benchmark is a **synthetic regression suite**, authored to catch code regressions. It is not independent evaluation data and does not establish real-world task-extraction accuracy.
-
-### Synthetic regression suite (development split)
-
-| Metric | Strict | Lenient |
-|---|---:|---:|
-| Task precision | 98.3% (59/60) | 100.0% (66/66) |
-| Task recall | 95.2% (59/62) | 100.0% (66/66) |
-| Duplicate rate | 0.0% (0/60) | 0.0% (0/66) |
-
-Run `npm run bench:v2` to reproduce these results for the current branch. These numbers measure only the committed synthetic development split. No independent real-world holdout results are claimed.
+The benchmark is a **synthetic regression suite** for checking code changes. Run `npm run bench:v2` to exercise it. Its results do not estimate performance on real conversations.
 
 ## Limitations
 
-- The rules engine is conservative and will miss some tasks or leave owners and dates unknown.
+- The rules engine is pattern-based and may not recognize some tasks or may leave owners and dates unknown.
 - Owner is left unknown when a name matches more than one chat participant.
 - Exact quotation validity proves that text exists at a source location; it does not prove that the interpretation is correct.
-- A chat’s silence does not prove a task was missed or completed.
-- The catch-up brief only says “assigned” when its owner match and participant identity checks pass; assignment alone does not mean someone is waiting.
+- A chat’s silence does not establish whether a task was completed.
+- The catch-up brief only says “assigned” when its owner match and participant identity checks pass; assignment alone does not imply someone is awaiting an update.
 - Optional local AI requires compatible WebGPU hardware. Model download/loading/inference can fail; fallback uses rules-only findings and has narrower coverage.
 - Inputs are limited to 60,000 characters for interactive analysis. Raw chat text and full source snapshots are not saved by the app; analysis and review data can persist across reloads only when the user opts in.
 - No real-world independent labelled evaluation set is included. Real-world accuracy remains unvalidated.
