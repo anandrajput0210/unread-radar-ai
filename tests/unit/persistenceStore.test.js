@@ -48,6 +48,8 @@ function fakeStorage({ onSetItem } = {}) {
 function record(text, overrides = {}) {
   return {
     fingerprint: fingerprint(text),
+    sourceText: text,
+    dateOrder: "auto",
     savedAt: "2026-11-25T12:00:00.000Z",
     schemaVersion: SCHEMA_VERSION,
     analysis: {
@@ -130,6 +132,34 @@ test("a real rules-only analysis with source metadata remains restorable", async
   assert.equal(loadSession(storage, saved.fingerprint).analysis.actions[0].text, analysis.actions[0].text);
 });
 
+test("deduplicated repeated-request evidence survives validated persistence", async () => {
+  const text = [
+    "Asha: Neha, please send the vendor quotation.",
+    "Asha: Neha, please send the vendor quotation.",
+  ].join("\n");
+  const snapshot = await createSourceSnapshot(text);
+  const analysis = await analyzeTextWithRules(text, { sourceSnapshot: snapshot });
+  const saved = record(text, {
+    fingerprint: fingerprint(text),
+    analysis,
+    sourceSnapshotId: snapshot.snapshotId,
+    sourceMessageFingerprints: snapshot.messages.map((message) => fingerprint(JSON.stringify([
+      message.authorRaw || "",
+      message.timestampRaw || "",
+      (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
+    ]))),
+    sourceMessageRanges: snapshot.messages.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })),
+  });
+  const storage = fakeStorage();
+
+  assert.equal(saveSession(storage, saved).saved, true);
+  const restored = loadSession(storage, saved.fingerprint);
+  const task = restored.analysis.actions.find((item) => item.text.includes("vendor quotation"));
+  const repeated = task.supportingEvidence.find((item) => item.kind === "duplicate-occurrence");
+  assert.equal(repeated?.sourceReferenceStatus, "valid");
+  assert.equal(repeated?.evidence.quote, "Asha: Neha, please send the vendor quotation.");
+});
+
 test("ambiguous owner candidate name survives validated persistence", async () => {
   const text = TRAP_CHATS["same-first-name"];
   const snapshot = await createSourceSnapshot(text);
@@ -198,7 +228,7 @@ test("persistence disabled does not call saveSession or touch storage", () => {
 });
 
 test("unknown and older schema versions are ignored without migration", () => {
-  for (const schemaVersion of [0, 999]) {
+  for (const schemaVersion of [0, 1, 999]) {
     const storage = fakeStorage();
     const saved = record(`schema-${schemaVersion}`);
     assert.equal(saveSession(storage, saved).saved, true);
@@ -248,7 +278,7 @@ test("restore drops a selected identity that is not present in the loaded chat",
   assert.deepEqual(restored.analysis.actions.map((action) => action.text), ["Send the report"]);
 });
 
-test("saved records retain source identifiers without storing raw chat text", () => {
+test("saved records retain source text and identifiers for explicit restoration", () => {
   const storage = fakeStorage();
   const saved = record("private source", {
     rawText: "private source",
@@ -262,7 +292,8 @@ test("saved records retain source identifiers without storing raw chat text", ()
   assert.equal(stored.sourceSnapshotId, `sha256:${"b".repeat(64)}`);
   assert.deepEqual(stored.sourceMessageRanges, [{ startOffset: 0, endOffset: 12 }]);
   assert.equal(Object.hasOwn(stored, "rawText"), false);
-  assert.equal(JSON.stringify(stored).includes("private source"), false);
+  assert.equal(stored.sourceText, "private source");
+  assert.equal(stored.dateOrder, "auto");
 });
 
 test("quota failure returns not-saved instead of throwing", () => {

@@ -1,5 +1,10 @@
-const STORAGE_PREFIX = "unread-radar-ai:local-session:v1:";
-export const SCHEMA_VERSION = 1;
+const STORAGE_PREFIX = "unread-radar-ai:local-session:v2:";
+const LEGACY_STORAGE_PREFIXES = ["unread-radar-ai:local-session:v1:"];
+const OWNED_STORAGE_PREFIXES = [STORAGE_PREFIX, ...LEGACY_STORAGE_PREFIXES];
+const PERSISTENCE_PREFERENCE_KEY = `${STORAGE_PREFIX}preference`;
+const DATE_ORDER_CHOICES = new Set(["auto", "dmy", "mdy"]);
+const MAX_SAVED_SOURCE_CHARACTERS = 60_000;
+export const SCHEMA_VERSION = 2;
 export const MAX_SAVED_SESSIONS = 5;
 export const MAX_RECORD_BYTES = 512 * 1024;
 
@@ -224,6 +229,10 @@ function isValidRecord(value) {
     || value.schemaVersion !== SCHEMA_VERSION
     || typeof value.fingerprint !== "string"
     || !FINGERPRINT_PATTERN.test(value.fingerprint)
+    || typeof value.sourceText !== "string"
+    || value.sourceText.length > MAX_SAVED_SOURCE_CHARACTERS
+    || fingerprint(value.sourceText) !== value.fingerprint
+    || !DATE_ORDER_CHOICES.has(value.dateOrder)
     || !isIsoTimestamp(value.savedAt)
     || !isAnalysisRecord(value.analysis)
     || !isReviewDecisions(value.reviewDecisions)
@@ -285,7 +294,7 @@ function getOwnedKeys(storage) {
     } catch (error) {
       return { keys: [], error };
     }
-    if (typeof key === "string" && key.startsWith(STORAGE_PREFIX)) keys.push(key);
+    if (typeof key === "string" && OWNED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) keys.push(key);
   }
   return { keys, error: null };
 }
@@ -341,6 +350,8 @@ function prepareRecord(record) {
   }
   return {
     fingerprint: record.fingerprint,
+    sourceText: record.sourceText,
+    dateOrder: record.dateOrder,
     savedAt: record.savedAt,
     schemaVersion: SCHEMA_VERSION,
     analysis: record.analysis,
@@ -401,6 +412,33 @@ export function persistIfEnabled(storage, enabled, record, save = saveSession) {
     return { saved: false, status: "disabled", message: "Persistence is off; nothing was saved." };
   }
   return save(storage, record);
+}
+
+export function loadPersistencePreference(storage) {
+  try {
+    return storage?.getItem(PERSISTENCE_PREFERENCE_KEY) === "enabled";
+  } catch {
+    return false;
+  }
+}
+
+export function savePersistencePreference(storage, enabled) {
+  if (typeof enabled !== "boolean") {
+    return { success: false, message: "The save preference could not be updated." };
+  }
+  try {
+    if (enabled) {
+      storage.setItem(PERSISTENCE_PREFERENCE_KEY, "enabled");
+    } else {
+      storage.removeItem(PERSISTENCE_PREFERENCE_KEY);
+    }
+    return { success: true };
+  } catch {
+    return {
+      success: false,
+      message: "The save preference could not be stored in this browser.",
+    };
+  }
 }
 
 export function loadSession(storage, fingerprintValue) {

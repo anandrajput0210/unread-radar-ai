@@ -14,6 +14,7 @@ function OutcomeBadge({ task, status }) {
 }
 
 function classificationLabel(task) {
+  if (task.ownerBasis === "disputed") return "Ownership disputed · not assigned";
   if (task.classification === "self_commitment") return `Self-commitment · ${task.owner || "speaker"}`;
   if (task.classification === "collective_task") return "Team task · no owner stated";
   if (task.classification === "unassigned_request") return "Unassigned request · no owner stated";
@@ -23,6 +24,20 @@ function classificationLabel(task) {
   if (hasGroundedOwner(task)) return `Assigned task · ${task.owner}`;
   if (task.owner) return "Owner basis unclear · not assigned to a participant";
   return "Unclassified candidate · verify owner";
+}
+
+function lifecycleLabel(task) {
+  const labels = {
+    acknowledged: "Acknowledged",
+    "in-progress": "In progress",
+    delayed: "Delayed",
+    completed: "Completed",
+    disputed: "Disputed",
+    reassigned: "Reassigned",
+    cancelled: "Cancelled",
+  };
+  const label = labels[task.lifecycleStatus];
+  return label ? `Conversation lifecycle · ${label}` : null;
 }
 
 function conditionLabel(task) {
@@ -51,6 +66,7 @@ function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatu
   const task = sourceTask.humanReviewStatus === "promoted"
     ? { ...sourceTask, outcomeReason: null }
     : sourceTask;
+  const lifecycle = lifecycleLabel(task);
 
   return (
     <article className={cx(
@@ -83,6 +99,7 @@ function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatu
             <OutcomeBadge task={task} status={status} />
             {task.humanReviewStatus === "promoted" && <Badge tone="green">Promoted by you</Badge>}
             <span className="text-xs text-slate-400">{classificationLabel(task)}</span>
+            {lifecycle && <span className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.05] px-2 py-1 text-xs text-cyan-100">{lifecycle}</span>}
             {task.suggestedOwner && <span className="text-xs text-amber-200">Suggested owner (unverified): {task.suggestedOwner}</span>}
             {task.suggestedDueDate && <span className="text-xs text-amber-200">Suggested timing (unverified): {task.suggestedDueDate}</span>}
             {task.acknowledgedBy && <span className="text-xs font-semibold text-emerald-300">Acknowledged by {task.acknowledgedBy}</span>}
@@ -183,7 +200,7 @@ function TaskCardContent({ task: sourceTask, status, onShowSource, onChangeStatu
         </div>
         <div className="w-full shrink-0 sm:w-40">
           <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500" htmlFor={`task-status-${task.id}`}>
-            Review status
+            Human review status
           </label>
           <select
             id={`task-status-${task.id}`}

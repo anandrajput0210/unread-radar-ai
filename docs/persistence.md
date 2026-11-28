@@ -6,12 +6,13 @@ Unread Radar AI keeps chat input and analysis in memory by default. The **Save t
 
 When enabled, each saved record contains:
 
+- The original chat text, needed to rebuild and validate its source snapshot on restore.
 - The analysis result, including extracted task text and exact quoted evidence.
 - Human review decisions and task statuses.
 - The selected identity, if one was chosen.
-- A normalized chat fingerprint, an exact source-snapshot identifier, per-message fingerprints and source ranges, the save time, and the schema version.
+- The date-order choice, a normalized chat fingerprint, an exact source-snapshot identifier, per-message fingerprints and source ranges, the save time, and the schema version.
 
-Records are held in this browser's `localStorage`, with a maximum of five sessions and a 512 KiB limit per record. The raw chat text and full source snapshot are not stored. Message fingerprints use a deterministic non-cryptographic hash; they are comparison keys, not a security or identity mechanism. The app does not sync saved data to other devices.
+Records are held in this browser's `localStorage`, with a maximum of five sessions and a 512 KiB limit per record. The full source snapshot is rebuilt from the stored original text and date-order choice, then checked against the saved snapshot identity, message ranges, and fingerprints. Message fingerprints use a deterministic non-cryptographic hash; they are comparison keys, not a security or identity mechanism. The app does not sync saved data to other devices.
 
 Browser `localStorage` is not encrypted. Data can be read by scripts running for this site and by anyone or software with access to the browser profile or its site-storage tools. Do not enable saving on a shared or unmanaged device for sensitive conversations.
 
@@ -19,10 +20,12 @@ Storage access can be blocked or run out of space. In that case the app reports 
 
 ## Restore and chat identity
 
-An analysis and its review decisions are restored only for an exact matching normalized chat fingerprint and source-snapshot identifier. The selected identity is restored only if that speaker is present in the loaded chat. Editing or appending messages does not carry over identity or review decisions.
+After startup, valid saved analyses appear with their save time and a short source preview. **Restore saved analysis** explicitly restores the original input, reconstructed source snapshot, participants, analysis, evidence references, Why timeline, review decisions, task statuses, and selected identity. If the editor contains different text, the action is labelled **Replace input and restore** and explains that it will replace the current input. **Dismiss** hides an item for the current tab session, including page refreshes, without deleting its saved data. The save preference is kept in this browser; saved analyses remain available even after saving is turned off.
+
+Restore verifies the saved source text against its normalized fingerprint, snapshot identifier, message ranges, and message fingerprints. Evidence references must still point to the exact quoted text in the rebuilt snapshot. The selected identity is restored only if that speaker is present in the loaded chat. Corrupted, outdated, or incompatible records are ignored safely rather than restored. Editing or appending messages does not carry over identity or review decisions.
 
 For an appended export, the app may compare it with a saved shorter export when the saved message fingerprints are an exact prefix. Tasks are matched conservatively by exact evidence quote and source-message index. Ambiguous matches are labelled “possibly the same”; the app does not silently merge tasks. This comparison does not carry over the previous review state.
 
 ## Turn off or delete saved data
 
-Turning the toggle off stops new saves but does not delete records already saved. Select **Clear saved data** to remove all keys written by this feature from this browser's localStorage; unrelated site-storage entries are left untouched. Clearing also turns saving off. This removes the feature's keys but cannot guarantee forensic erasure from browser-managed storage, backups, or device media. Browser-managed model assets and explicit user downloads are separate from this feature's saved records.
+Turning the toggle off stops new saves but does not delete records already saved. Select **Clear saved data** to remove all current and prior-version keys written by this feature from this browser's localStorage; unrelated site-storage entries are left untouched. Clearing also turns saving off. This removes the feature's keys but cannot guarantee forensic erasure from browser-managed storage, backups, or device media. Browser-managed model assets and explicit user downloads are separate from this feature's saved records.

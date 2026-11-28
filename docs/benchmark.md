@@ -4,6 +4,8 @@
 
 Coverage includes explicit named assignments, addressed questions, unassigned requests and actions, explicit and contextual due signals, calendar-only references, negation, offers to help, acknowledgement-only messages, group requests, multiple addressees, urgency, decisions, direct handles, unrelated mentions, action labels, duplicate requests, and speaker/owner separation.
 
+The unit and integration suite also exercises participant-name ambiguity, same-first-name lifecycle attribution, ownership-dispute context, lifecycle-state preservation during disputes, and source-backed evidence for deduplicated repeated requests. These are targeted synthetic regressions and are not additions to the benchmark corpus or evidence of real-world accuracy.
+
 Run the corpus with:
 
 ```powershell

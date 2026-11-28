@@ -12,6 +12,12 @@
  *    as-of date, and the task must be open. It says "no completion message
  *    found in this chat", never "missed": silence in a chat is not proof the work is undone.
  */
+import {
+  findMatchingParticipants,
+  normalizeParticipantName,
+  resolveParticipantIdentity,
+  sameParticipantIdentity,
+} from "../identity.js";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
@@ -33,31 +39,22 @@ const GROUNDED_OWNER_SOURCES = new Set([
 export const PAST_DUE_LABEL = "Past due · no completion message found in this chat";
 
 function tokens(name) {
-  return String(name ?? "")
-    .normalize("NFC")
-    .replace(/^@/u, "")
-    .toLocaleLowerCase()
-    .split(/\s+/u)
-    .filter(Boolean);
+  return normalizeParticipantName(name).split(/\s+/u).filter(Boolean);
 }
-
-const isSubset = (small, big) => small.length > 0 && small.every((t) => big.includes(t));
 
 /** "yes" | "no" | "unsure" | "none". Whole-token matching only. */
 export function ownerMatch(owner, me, speakers = []) {
   const ownerTokens = tokens(owner);
   const meTokens = tokens(me);
   if (!ownerTokens.length || !meTokens.length) return "none";
-  if (ownerTokens.join(" ") === meTokens.join(" ")) return "yes";
-  const related = isSubset(ownerTokens, meTokens) || isSubset(meTokens, ownerTokens);
-  if (!related) return "no";
-  // The owner text could also mean someone else in the chat.
-  const meKey = meTokens.join(" ");
-  const rivals = (Array.isArray(speakers) ? speakers : []).filter((s) => {
-    const t = tokens(s);
-    return t.join(" ") !== meKey && (isSubset(ownerTokens, t) || isSubset(t, ownerTokens));
-  });
-  return rivals.length ? "unsure" : "yes";
+  const identity = resolveParticipantIdentity(owner, speakers);
+  if (identity.status === "resolved") {
+    return sameParticipantIdentity(owner, me, speakers) ? "yes" : "no";
+  }
+  if (identity.status === "ambiguous") {
+    return findMatchingParticipants(owner, [me]).length ? "unsure" : "no";
+  }
+  return normalizeParticipantName(owner) === normalizeParticipantName(me) ? "yes" : "no";
 }
 
 export function listSpeakers(snapshot) {

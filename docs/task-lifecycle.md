@@ -22,6 +22,7 @@ The rules-only analysis adapter preserves these fields and adds snapshot-bound e
 - **Completed:** explicit phrases such as `quotation sent`, `report submitted`, `done`, `fixed`, `ho gaya`, and `bhej diya`.
 - **Cancelled:** explicit cancellation language such as `cancelled`, `no longer needed`, and supported Hinglish cancellation phrases.
 - **Reassigned:** explicit transfers such as `reassign the quotation to Rahul` or `Rahul will handle the quotation`. The existing task owner is updated rather than creating a second copy for the reassignment message.
+- **Ownership disputed:** a different speaker's commitment to the same owned work can make the owner unknown. The previous owner is retained as `ownerCandidateName`; the dispute event is appended without erasing earlier lifecycle events or changing their state.
 
 ## Hinglish support (deterministic phrase rules)
 
@@ -37,6 +38,8 @@ The rules-only analysis adapter preserves these fields and adds snapshot-bound e
 ## Conservative matching rules
 
 Lifecycle messages are associated with an earlier task only when their content has sufficient overlap with one task and the match is not tied with another task. Context-free messages such as `Done` are attached only when exactly one open task is owned by the speaker. If more than one task could match, no lifecycle change is made.
+
+Participant aliases are resolved against the complete speaker list. Full-name matches are preferred; a first name shared by multiple speakers remains ambiguous. Vague competing commitments only dispute a task when they directly follow that single task; an intervening message or multiple tasks in the referenced message is not enough evidence to choose a target. Lifecycle events remain ordered by their source positions.
 
 Acknowledgements after reassignment are evaluated against the current owner, so the new owner can acknowledge the task.
 

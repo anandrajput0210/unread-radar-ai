@@ -117,6 +117,59 @@ test("a different speaker's commitment to unrelated work does not dispute the ta
   assert.notEqual(task?.ownerBasis, "disputed");
 });
 
+test("a vague competing commitment does not dispute an older task after a new referent intervenes", async () => {
+  const { analysis } = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Asha: We have also been discussing the launch deck.",
+    "Ben: I'll take it.",
+  ].join("\n"));
+  const quotation = analysis.actions.find((action) => action.text.includes("vendor quotation"));
+
+  assert.ok(quotation);
+  assert.equal(quotation.owner, "Neha");
+  assert.notEqual(quotation.ownerBasis, "disputed");
+  assert.equal(quotation.lifecycleEvents.some((event) => event.type === "ownership-disputed"), false);
+});
+
+test("disputing ownership preserves lifecycle state and source order", async () => {
+  const { analysis } = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Neha: I'm working on the quotation now.",
+    "Ben: I'll send the vendor quotation.",
+  ].join("\n"));
+  const task = analysis.actions.find((action) => action.text.includes("vendor quotation"));
+
+  assert.ok(task);
+  assert.equal(task.owner, null);
+  assert.equal(task.ownerBasis, "disputed");
+  assert.equal(task.lifecycleStatus, "in-progress");
+  assert.deepEqual(
+    task.lifecycleEvents.map((event) => event.sourceSpan.startOffset),
+    [...task.lifecycleEvents.map((event) => event.sourceSpan.startOffset)].sort((a, b) => a - b),
+  );
+  assert.ok(task.lifecycleEvents.some((event) => event.type === "in-progress"));
+  assert.ok(task.lifecycleEvents.some((event) => event.type === "ownership-disputed"));
+});
+
+test("deduplicated repeated tasks retain the later source occurrence as evidence", async () => {
+  const { analysis, snapshot, speakers } = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Asha: Neha, please send the vendor quotation.",
+  ].join("\n"));
+  const quotations = analysis.actions.filter((action) => action.text.includes("vendor quotation"));
+
+  assert.equal(quotations.length, 1);
+  const repeated = quotations[0].supportingEvidence.filter((detail) => detail.kind === "duplicate-occurrence");
+  assert.equal(repeated.length, 1);
+  assert.equal(repeated[0].text, "Asha: Neha, please send the vendor quotation.");
+  assert.equal(repeated[0].sourceReferenceStatus, "valid");
+  assert.notEqual(repeated[0].sourceSpan.startOffset, quotations[0].sourceSpan.startOffset);
+  const why = buildTaskWhy(quotations[0], { messages: snapshot.messages, speakers });
+  assert.ok(why.timeline.some((event) => event.type === "repeated-request"
+    && event.quote === repeated[0].evidence.quote
+    && event.referenceStatus === "valid"));
+});
+
 test("unique names, self-claims, named handovers, unowned claims, and samples keep their owners", async () => {
   const unique = await analyzeChat([
     "Asha: Neha, please send the quotation by Friday.",
@@ -189,6 +242,8 @@ test("disputed ownership is accepted by persistence and reported as an owner cha
   };
   const saved = {
     fingerprint: fingerprint(disputedChat),
+    sourceText: disputedChat,
+    dateOrder: "auto",
     savedAt: "2026-11-25T12:00:00.000Z",
     schemaVersion: SCHEMA_VERSION,
     analysis: persistedAnalysis,

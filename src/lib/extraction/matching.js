@@ -1,6 +1,6 @@
 import { RELATION_STOP_WORDS, TASK_VERB_SET } from "./constants.js";
 import { sourceSpan } from "./text.js";
-import { ownerMatch } from "../views/catchUpBrief.js";
+import { resolveParticipantIdentity, sameParticipantIdentity } from "../identity.js";
 
 export function matchesAcknowledgement(body) {
   return /^\s*(?:(?:sure|yes|yep|ok(?:ay)?|alright|absolutely)[,!\s]+)?(?:i['’]?m\s+on\s+it|i\s+am\s+on\s+it|on\s+it|will\s+do|i['’]?ll\s+(?:do\s+it|take\s+it)|got\s+it|consider\s+it\s+done|i\s+can\s+handle\s+that)[.!\s]*$/iu.test(body)
@@ -8,14 +8,8 @@ export function matchesAcknowledgement(body) {
     || /^\s*(?:(?:ok(?:ay)?|theek\s+hai|thik\s+hai|haan|ji|yes)[,\s]+)*(?:(?:sir|boss|bhai|ji)[,\s]+)?(?:kar\s+(?:deta|dunga|dungi|deti|denge)(?:\s+(?:hu|hoon|hun))?|ho\s+(?:jayega|jaega|jaayega)|kar\s+dun(?:ga|gi)|karta\s+(?:hu|hoon|hun)|kar\s+raha\s+(?:hu|hoon|hun)|kar\s+leta\s+(?:hu|hoon|hun))[.!\s]*$/iu.test(body);
 }
 
-export function ownerMatchesSpeaker(owner, speaker) {
-  if (!owner || !speaker) return false;
-  const ownerName = owner.replace(/^@/, "").trim().toLocaleLowerCase();
-  const speakerName = speaker.trim().toLocaleLowerCase();
-  if (ownerName === speakerName) return true;
-  const firstOwnerToken = ownerName.split(/\s+/)[0];
-  const firstSpeakerToken = speakerName.split(/\s+/)[0];
-  return firstOwnerToken.length > 1 && firstOwnerToken === firstSpeakerToken;
+export function ownerMatchesSpeaker(owner, speaker, speakers = [speaker]) {
+  return sameParticipantIdentity(owner, speaker, speakers);
 }
 
 export function uniqueSpeakerNames(speakers) {
@@ -30,10 +24,7 @@ export function uniqueSpeakerNames(speakers) {
 }
 
 export function ownerMatchesMultipleSpeakers(owner, speakers) {
-  const matches = speakers
-    .map((speaker) => ownerMatch(owner, speaker, speakers))
-    .filter((match) => match !== "no" && match !== "none");
-  return matches.length > 1 && !matches.includes("yes");
+  return resolveParticipantIdentity(owner, speakers).status === "ambiguous";
 }
 
 export function relationTokens(text) {
@@ -62,9 +53,9 @@ export function addSupportingDetail(action, record, body, kind = "detail") {
   }
 }
 
-export function findUniquePriorAction(actions, owner, text, record, { minimumScore = 0.28 } = {}) {
+export function findUniquePriorAction(actions, owner, text, record, { minimumScore = 0.28, speakers = [owner] } = {}) {
   const matches = actions
-    .filter((action) => action.owner && ownerMatchesSpeaker(action.owner, owner) && action.sourceSpan.startOffset < record.startOffset)
+    .filter((action) => action.owner && ownerMatchesSpeaker(action.owner, owner, speakers) && action.sourceSpan.startOffset < record.startOffset)
     .map((action) => ({ action, score: relationScore(action.text, text) }))
     .filter((item) => item.score >= minimumScore)
     .sort((a, b) => b.score - a.score);
@@ -74,7 +65,7 @@ export function findUniquePriorAction(actions, owner, text, record, { minimumSco
 }
 
 /** The only earlier task owned by this speaker, or null when none or several exist. */
-export function findUniqueOwnedAction(actions, owner, record) {
-  const owned = actions.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, owner) && action.sourceSpan.startOffset < record.startOffset);
+export function findUniqueOwnedAction(actions, owner, record, speakers = [owner]) {
+  const owned = actions.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, owner, speakers) && action.sourceSpan.startOffset < record.startOffset);
   return owned.length === 1 ? owned[0] : null;
 }

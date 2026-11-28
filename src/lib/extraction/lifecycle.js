@@ -66,7 +66,10 @@ export function extractLifecycleDuePhrase(body) {
   return relative?.[1] || null;
 }
 
-export function chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records = []) {
+export function chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records = [], participants = null) {
+  const speakers = Array.isArray(participants)
+    ? participants
+    : uniqueSpeakerNames(records.map((item) => recordMeta(item, options).speaker));
   const available = actions.filter((action) => action.sourceSpan.startOffset < record.startOffset
     && !["completed", "cancelled"].includes(action.lifecycleStatus));
   const scored = available.map((action) => ({ action, score: relationScore(action.text, body) }))
@@ -91,7 +94,7 @@ export function chooseLifecycleTarget(actions, record, body, speaker, eventType,
   // A bare acknowledgement/completion is safe only when one open task belongs
   // to this speaker. Never attach a context-free status to an arbitrary task.
   if (matchesAcknowledgement(body) || /^(?:done|completed|finished|sent|submitted|on\s+it|i['’]?m\s+on\s+it|i\s+am\s+on\s+it|will\s+do)[.!\s✅✔]*$/iu.test(body)) {
-    const owned = available.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, speaker));
+    const owned = available.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, speaker, speakers));
     return owned.length === 1 ? owned[0] : null;
   }
 
@@ -99,7 +102,7 @@ export function chooseLifecycleTarget(actions, record, body, speaker, eventType,
   // when they own exactly one open task AND share at least one content word
   // ("Invoice bhej diya hai" -> their one open invoice task).
   if (["completed", "in-progress", "delayed"].includes(eventType) && speaker) {
-    const owned = available.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, speaker));
+    const owned = available.filter((action) => action.owner && ownerMatchesSpeaker(action.owner, speaker, speakers));
     if (owned.length === 1 && (relationScore(owned[0].text, body) > 0 || sharesWordStem(owned[0].text, body))) return owned[0];
   }
   return null;
@@ -158,7 +161,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
     // Resolve later acknowledgements against the current owner state here.
     if (speaker && matchesAcknowledgement(body)) {
       const currentOwnerTasks = actions.filter((action) => action.sourceSpan.startOffset < record.startOffset
-        && ownerMatchesSpeaker(action.owner, speaker)
+        && ownerMatchesSpeaker(action.owner, speaker, speakers)
         && !["completed", "cancelled"].includes(action.lifecycleStatus));
       if (currentOwnerTasks.length === 1) {
         const [action] = currentOwnerTasks;
@@ -188,7 +191,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
       // message (it often folds it into the original), so the merge works from
       // the message itself and treats the orphan as optional cleanup.
       const orphan = actions.find((action) => action.classification === "self_commitment"
-        && ownerMatchesSpeaker(action.owner, speaker)
+        && ownerMatchesSpeaker(action.owner, speaker, speakers)
         && action.sourceSpan.startOffset >= record.startOffset
         && action.sourceSpan.endOffset <= record.endOffset) || null;
       const duePhrase = commitment?.owner ? extractLifecycleDuePhrase(body) : null;
@@ -197,7 +200,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
         const deliverable = [...relationTokens(commitment.text)].filter((token) => !DEADLINE_WORDS.has(token) && !PRONOUN_OBJECTS.has(token) && !FILLER_TOKENS.has(token));
         const ownedOpen = actions.filter((action) => action !== orphan
           && action.sourceSpan.startOffset < record.startOffset
-          && ownerMatchesSpeaker(action.owner, speaker)
+          && ownerMatchesSpeaker(action.owner, speaker, speakers)
           && !["completed", "cancelled"].includes(action.lifecycleStatus));
         // Identity = deliverable, not verb. "send the quotation" must never
         // attach to "send the invoice". With only a pronoun ("send it"), the
@@ -231,7 +234,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
 
     const eventType = lifecycleEventType(body);
     if (!eventType) continue;
-    let target = chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records);
+    let target = chooseLifecycleTarget(actions, record, body, speaker, eventType, options, records, speakers);
     if (!target && eventType === "reassigned") {
       // "Banner ka kaam ab Rohan karega, Neha ko ye nahi karna": the previous
       // owner is named, so use them to find the task, but only if it is unique
@@ -240,7 +243,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
       if (previous) {
         const owned = actions.filter((action) => action.sourceSpan.startOffset < record.startOffset
           && !["completed", "cancelled"].includes(action.lifecycleStatus)
-          && ownerMatchesSpeaker(action.owner, previous)
+          && ownerMatchesSpeaker(action.owner, previous, speakers)
           && relationScore(action.text, body) > 0);
         if (owned.length === 1) target = owned[0];
       }
@@ -251,7 +254,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
     // owner must not close the owner's task, unless the message names the owner
     // ("Priya sent the invoice"). Leaving it untouched is safer than guessing.
     if (["completed", "in-progress"].includes(eventType) && target.owner && speaker
-      && !ownerMatchesSpeaker(target.owner, speaker)
+      && !ownerMatchesSpeaker(target.owner, speaker, speakers)
       && !new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(String(target.owner).replace(/^@/u, ""))}(?![\\p{L}\\p{N}])`, "iu").test(body)) continue;
 
     const event = {
@@ -265,7 +268,7 @@ export function applyTaskLifecycle(actions, records, options = {}, participants 
 
     if (eventType === "reassigned") {
       const nextOwner = extractReassignmentOwner(body);
-      if (!nextOwner || ownerMatchesSpeaker(target.owner, nextOwner)) continue;
+      if (!nextOwner || ownerMatchesSpeaker(target.owner, nextOwner, speakers)) continue;
       const ambiguousOwner = ownerMatchesMultipleSpeakers(nextOwner, speakers);
       event.previousOwner = target.owner || null;
       event.newOwner = ambiguousOwner ? null : nextOwner;

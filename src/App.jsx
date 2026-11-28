@@ -11,6 +11,7 @@ import { EmptyState } from "./components/ui/EmptyState.jsx";
 import { ProgressMeter } from "./components/ui/ProgressMeter.jsx";
 import { ComparisonPanel } from "./components/ComparisonPanel.jsx";
 import { TaskCard } from "./components/TaskCard.jsx";
+import { SavedAnalysisRestoreCard } from "./components/SavedAnalysisRestoreCard.jsx";
 import { TaskWhyDataContext } from "./components/TaskWhyPanel.jsx";
 import { TaskSourcePane } from "./components/TaskSourcePane.jsx";
 import { PriorityItem } from "./components/PriorityItem.jsx";
@@ -27,7 +28,17 @@ import { TRAP_CHATS } from "./lib/trapChats.js";
 import { DEMO_CHAT } from "./lib/demoChat.js";
 import { selectAnalysisMode } from "./lib/ai/modelConsent.js";
 import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
-import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
+import { clearAll, fingerprint, loadPersistencePreference, savePersistencePreference } from "./lib/persistence/store.js";
+import {
+  listSavedWorkspaces,
+  filterVisibleSavedWorkspaces,
+  loadDismissedWorkspaces,
+  restoreSavedWorkspace,
+  saveDismissedWorkspaces,
+  saveWorkspace,
+  sourceMessageFingerprints,
+  sourceMessageRanges,
+} from "./lib/persistence/workspace.js";
 import { diffSessions } from "./lib/views/whatChanged.js";
 
 const BUILD_ID = typeof __VERCEL_GIT_COMMIT_SHA__ === "string"
@@ -42,16 +53,12 @@ function getLocalStorage() {
   }
 }
 
-function messageFingerprints(snapshot) {
-  return (snapshot?.messages || []).map((message) => fingerprint(JSON.stringify([
-    message.authorRaw || "",
-    message.timestampRaw || "",
-    (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
-  ])));
-}
-
-function messageRanges(snapshot) {
-  return (snapshot?.messages || []).map(({ startOffset, endOffset }) => ({ startOffset, endOffset }));
+function getSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 function retainTaskStatuses(statuses, actions) {
@@ -99,9 +106,12 @@ export default function App() {
   const [useLocalModel, setUseLocalModel] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState(null);
   const [selectedSource, setSelectedSource] = useState(null);
-  const [persistenceEnabled, setPersistenceEnabled] = useState(false);
+  const [persistenceEnabled, setPersistenceEnabled] = useState(() => loadPersistencePreference(getLocalStorage()));
   const [persistenceStatus, setPersistenceStatus] = useState({ type: "", message: "" });
   const [restoredSession, setRestoredSession] = useState(null);
+  const [savedSessions, setSavedSessions] = useState(() => listSavedWorkspaces(getLocalStorage()));
+  const [dismissedSavedFingerprints, setDismissedSavedFingerprints] = useState(() => loadDismissedWorkspaces(getSessionStorage()));
+  const [restoringFingerprint, setRestoringFingerprint] = useState(null);
   const [changeDiff, setChangeDiff] = useState(null);
   const sourceSpeakers = useMemo(() => listSpeakers(sourceSnapshot), [sourceSnapshot]);
   const [briefMe, setBriefMe] = useState(null);
@@ -113,79 +123,14 @@ export default function App() {
   const activeRunRef = useRef(0);
   const sourceNavigationRef = useRef(0);
   const legacyCleanupAttemptedRef = useRef(false);
-  const skipRestoreFingerprintRef = useRef(null);
+  const inputRevisionRef = useRef(0);
+  const dismissedSavedFingerprintsRef = useRef(dismissedSavedFingerprints);
+  const persistenceEnabledRef = useRef(persistenceEnabled);
 
   useEffect(() => {
     if (!demoMode || !demoTaskId) return;
     document.getElementById("demo-first-task")?.focus();
   }, [demoMode, demoTaskId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!chatText.trim() || hasAnalysis || isAnalyzing) return () => { cancelled = true; };
-
-    if (skipRestoreFingerprintRef.current === fingerprint(chatText)) {
-      return () => { cancelled = true; };
-    }
-
-    const storage = getLocalStorage();
-    if (!storage) {
-      if (persistenceEnabled) {
-        setPersistenceStatus({
-          type: "warning",
-          message: "Device storage is unavailable. This analysis will remain in memory.",
-        });
-      }
-      return () => { cancelled = true; };
-    }
-
-    let chatFingerprint;
-    try {
-      chatFingerprint = fingerprint(chatText);
-    } catch (error) {
-      setPersistenceStatus({
-        type: "warning",
-        message: error instanceof Error ? error.message : "The saved review could not be checked.",
-      });
-      return () => { cancelled = true; };
-    }
-    if (!loadSession(storage, chatFingerprint)) return () => { cancelled = true; };
-
-    createSourceSnapshot(chatText, { dateOrder: dateOrderChoice === "auto" ? undefined : dateOrderChoice })
-      .then((snapshot) => {
-        if (cancelled) return;
-        const saved = restoreSession(storage, chatFingerprint, listSpeakers(snapshot));
-        if (!saved) return;
-        if (saved.sourceSnapshotId !== snapshot.snapshotId) {
-          setPersistenceStatus({
-            type: "warning",
-            message: "Saved review found, but its source snapshot does not match these import settings. Run a fresh analysis.",
-          });
-          return;
-        }
-
-        const savedAnalysis = saved.analysis;
-        setSourceSnapshot(snapshot);
-        setSelectedSource(null);
-        setAnalysis(savedAnalysis);
-        setHasAnalysis(true);
-        setTaskStatuses(retainTaskStatuses(saved.taskStatuses, savedAnalysis.actions));
-        setReviewDecisions(retainReviewDecisions(saved.reviewDecisions, savedAnalysis.reviewQueue));
-        setBriefMe(saved.selectedIdentity);
-        setRestoredSession(saved);
-        setChangeDiff(null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPersistenceStatus({
-            type: "warning",
-            message: "The saved review could not be restored. Your chat remains in memory.",
-          });
-        }
-      });
-
-    return () => { cancelled = true; };
-  }, [chatText, dateOrderChoice, hasAnalysis, isAnalyzing, persistenceEnabled]);
 
   useEffect(() => {
     if (legacyCleanupAttemptedRef.current) return;
@@ -259,31 +204,29 @@ export default function App() {
     const matchesOutcome = outcomeFilter === "All" || (task.outcome || "confirmed") === outcomeFilter;
     return matchesSearch && matchesUrgency && matchesStatus && matchesOutcome;
   });
+  const visibleSavedSessions = filterVisibleSavedWorkspaces(
+    savedSessions,
+    dismissedSavedFingerprints,
+    restoredSession?.fingerprint,
+  );
 
   function persistCurrentSession(overrides = {}, enabled = persistenceEnabled) {
-    if (!enabled) return { saved: false, status: "disabled", message: "Persistence is off; nothing was saved." };
     const snapshot = overrides.sourceSnapshot || sourceSnapshot;
-    if (!snapshot) return { saved: false, status: "not-saved", message: "This analysis was not saved because its source snapshot is unavailable." };
     const selectedIdentity = Object.prototype.hasOwnProperty.call(overrides, "selectedIdentity")
       ? overrides.selectedIdentity
       : briefMe;
-    const record = {
-      fingerprint: fingerprint(snapshot.rawText),
-      savedAt: new Date().toISOString(),
-      schemaVersion: SCHEMA_VERSION,
+    const result = saveWorkspace(getLocalStorage(), enabled, {
+      sourceSnapshot: snapshot,
       analysis: overrides.analysis || analysis,
       reviewDecisions: overrides.reviewDecisions || reviewDecisions,
       taskStatuses: overrides.taskStatuses || taskStatuses,
-      selectedIdentity: typeof selectedIdentity === "string" ? selectedIdentity : null,
-      sourceMessageFingerprints: messageFingerprints(snapshot),
-      sourceSnapshotId: snapshot.snapshotId,
-      sourceMessageRanges: messageRanges(snapshot),
-    };
-    const result = persistIfEnabled(getLocalStorage(), enabled, record);
+      selectedIdentity,
+    });
     setPersistenceStatus({
       type: result.saved ? "success" : result.status === "disabled" ? "" : "warning",
       message: result.message,
     });
+    if (result.saved) setSavedSessions(listSavedWorkspaces(getLocalStorage()));
     return result;
   }
 
@@ -314,7 +257,7 @@ export default function App() {
   }
 
   function handleTextChange(value) {
-    skipRestoreFingerprintRef.current = null;
+    inputRevisionRef.current += 1;
     setChatText(value);
     setLoadedFileName("");
     setFileStatus({ type: "", message: "" });
@@ -401,7 +344,7 @@ export default function App() {
           return;
         }
         setChatText(reader.result);
-        skipRestoreFingerprintRef.current = null;
+        inputRevisionRef.current += 1;
         setLoadedFileName(file.name);
         resetAnalysis();
         setFileStatus({ type: "success", message: `Loaded ${file.name} locally. Choose an analysis mode when ready.` });
@@ -510,10 +453,10 @@ export default function App() {
       }
       setTaskStatuses({});
       setReviewDecisions({});
-      if (persistenceEnabled) {
+      if (persistenceEnabledRef.current) {
         const currentFingerprint = fingerprint(source);
-        const currentMessageFingerprints = messageFingerprints(snapshot);
-        const previousRecords = listSessions(getLocalStorage())
+        const currentMessageFingerprints = sourceMessageFingerprints(snapshot);
+        const previousRecords = listSavedWorkspaces(getLocalStorage())
           .filter((record) => {
             if (record.fingerprint === currentFingerprint) return true;
             const previousHashes = record.sourceMessageFingerprints;
@@ -530,7 +473,7 @@ export default function App() {
           });
         const previous = previousRecords[0];
         setChangeDiff(previous
-          ? diffSessions(previous, { analysis: result, sourceMessageRanges: messageRanges(snapshot) })
+          ? diffSessions(previous, { analysis: result, sourceMessageRanges: sourceMessageRanges(snapshot) })
           : null);
       } else {
         setChangeDiff(null);
@@ -572,14 +515,14 @@ export default function App() {
         type: statusType,
         message: `${inferenceNote}${modelSegmentNote}${timingNote} · ${elapsedSeconds}s.${granularityNote}`,
       });
-      if (persistenceEnabled) {
+      if (persistenceEnabledRef.current) {
         persistCurrentSession({
           sourceSnapshot: snapshot,
           analysis: result,
           reviewDecisions: {},
           taskStatuses: {},
           selectedIdentity: briefMe,
-        });
+        }, true);
       }
       setActiveTab("summary");
     } catch (error) {
@@ -642,7 +585,13 @@ export default function App() {
   }
 
   function togglePersistence(enabled) {
+    persistenceEnabledRef.current = enabled;
     setPersistenceEnabled(enabled);
+    const preference = savePersistencePreference(getLocalStorage(), enabled);
+    if (!preference.success) {
+      setPersistenceStatus({ type: "warning", message: preference.message });
+      return;
+    }
     if (!enabled) {
       setPersistenceStatus({
         type: "",
@@ -659,7 +608,13 @@ export default function App() {
 
   function clearSavedData() {
     const result = clearAll(getLocalStorage());
+    persistenceEnabledRef.current = false;
     setPersistenceEnabled(false);
+    setSavedSessions([]);
+    const clearedDismissals = new Set();
+    dismissedSavedFingerprintsRef.current = clearedDismissals;
+    setDismissedSavedFingerprints(clearedDismissals);
+    saveDismissedWorkspaces(getSessionStorage(), []);
     setRestoredSession(null);
     setChangeDiff(null);
     setPersistenceStatus({
@@ -669,9 +624,72 @@ export default function App() {
   }
 
   function startFresh() {
-    skipRestoreFingerprintRef.current = fingerprint(chatText);
     resetAnalysis();
     setRestoredSession(null);
+  }
+
+  function dismissSavedAnalysis(savedFingerprint) {
+    const next = new Set(dismissedSavedFingerprintsRef.current);
+    next.add(savedFingerprint);
+    dismissedSavedFingerprintsRef.current = next;
+    setDismissedSavedFingerprints(next);
+    const result = saveDismissedWorkspaces(getSessionStorage(), next);
+    if (!result.success) setPersistenceStatus({ type: "warning", message: result.message });
+    return result.success;
+  }
+
+  async function restoreSavedAnalysis(savedFingerprint) {
+    const inputRevision = inputRevisionRef.current;
+    setRestoringFingerprint(savedFingerprint);
+    try {
+      const restored = await restoreSavedWorkspace(getLocalStorage(), savedFingerprint);
+      if (inputRevision !== inputRevisionRef.current) {
+        setPersistenceStatus({
+          type: "warning",
+          message: "The input changed while the saved analysis was being prepared. Nothing was replaced.",
+        });
+        return;
+      }
+      if (!restored.ok) {
+        dismissSavedAnalysis(savedFingerprint);
+        setPersistenceStatus({
+          type: "warning",
+          message: "This saved analysis could not be restored. Its local data has not been deleted.",
+        });
+        setSavedSessions(listSavedWorkspaces(getLocalStorage()));
+        return;
+      }
+
+      setChatText(restored.chatText);
+      setDateOrderChoice(restored.dateOrder);
+      setLoadedFileName("");
+      setFileStatus({ type: "", message: "" });
+      setSourceSnapshot(restored.sourceSnapshot);
+      setSelectedSource(null);
+      setAnalysis(restored.analysis);
+      setHasAnalysis(true);
+      setTaskStatuses(retainTaskStatuses(restored.taskStatuses, restored.analysis.actions));
+      setReviewDecisions(retainReviewDecisions(restored.reviewDecisions, restored.analysis.reviewQueue));
+      setBriefMe(restored.selectedIdentity);
+      setRestoredSession(restored);
+      setChangeDiff(null);
+      setSelectedTrapChatId(null);
+      setDemoMode(false);
+      setDemoTaskId(null);
+      setSearchQuery("");
+      setUrgencyFilter("All");
+      setStatusFilter("All");
+      setOutcomeFilter("All");
+      setActiveTab("summary");
+      setPersistenceStatus({ type: "success", message: "Saved analysis restored on this device." });
+    } catch (error) {
+      setPersistenceStatus({
+        type: "warning",
+        message: error instanceof Error ? `Saved analysis could not be restored: ${error.message}` : "Saved analysis could not be restored.",
+      });
+    } finally {
+      setRestoringFingerprint(null);
+    }
   }
 
   function showSourceInInput(reference, referenceStatus = "unverified") {
@@ -778,12 +796,12 @@ export default function App() {
           <summary className="cursor-pointer text-sm font-bold text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">Privacy and limits</summary>
           <div className="mt-3 space-y-3 break-words text-xs leading-5 text-slate-400">
             <p>WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p>
-            <p>Chat text and source snapshots stay in memory by default. Optional saving stores analysis and review data, not the raw chat; unstructured text is treated as one source message when message headers cannot be recognized.</p>
-            <p>Off by default. When on, analysis results (including quoted evidence), review decisions, selected identity, and source fingerprints are saved in this browser's localStorage; raw chat text is not saved. This storage is not encrypted and clearing it does not guarantee forensic erasure.</p>
-            <p>Saved data applies only to the same source fingerprint.</p>
+            <p>Chat text and source snapshots stay in memory by default. When you opt in to saving, the original chat text is stored locally so the source snapshot and evidence can be rebuilt after refresh. Unstructured text is treated as one source message when message headers cannot be recognized.</p>
+            <p>Off by default. When enabled, the original chat text, analysis results (including quoted evidence), review decisions, selected identity, and source fingerprints are saved in this browser's localStorage. This storage is not encrypted and clearing it does not guarantee forensic erasure.</p>
+            <p>Saved data applies only to the same source fingerprint. Restore is explicit; dismissing a saved analysis hides it for this tab session, including page refreshes, without deleting its data.</p>
             <p>Off by default. Checking this box only enables the model path; the runtime and model weights are not loaded until you click Analyze. First use downloads Qwen weights into browser-managed cache. Requires compatible WebGPU hardware.</p>
             <p>When unchecked, analysis uses deterministic local patterns only and does not load the WebLLM runtime. In either mode, conversation text is processed in the browser and is not sent to a cloud AI endpoint.</p>
-            <p>Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint. Saved analysis and review data is written to this browser only when the separate persistence toggle is on.</p>
+            <p>Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint. Saved source text, analysis, and review data are written to this browser only when the separate persistence toggle is on.</p>
             <p>AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p>
             <h3 className="pt-1 font-bold text-slate-200">What it can't do yet</h3>
             <ul className="list-disc space-y-1 pl-5">
@@ -839,6 +857,17 @@ export default function App() {
                 </button>
                 {demoMode && <button type="button" onClick={() => handleTextChange("")} disabled={isAnalyzing} className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm font-bold text-slate-200 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-45">Reset demo</button>}
               </div>
+              {visibleSavedSessions.map((session) => (
+                <SavedAnalysisRestoreCard
+                  key={session.fingerprint}
+                  session={session}
+                  replaceInput={Boolean(chatText.trim() && fingerprint(chatText) !== session.fingerprint)}
+                  isRestoring={restoringFingerprint === session.fingerprint}
+                  isBusy={Boolean(restoringFingerprint)}
+                  onRestore={restoreSavedAnalysis}
+                  onDismiss={dismissSavedAnalysis}
+                />
+              ))}
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
                 <input ref={fileInputRef} type="file" accept=".txt,.log,text/plain" className="sr-only" aria-label="Choose a local .txt or .log chat file" disabled={isAnalyzing} onChange={(event) => { handleLocalFile(event.target.files?.[0]); event.target.value = ""; }} />
                 <div className="flex flex-col items-center justify-center gap-2 text-center sm:flex-row sm:text-left"><span className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", isDragging ? "bg-cyan-300 text-slate-950" : "bg-slate-900 text-cyan-200 ring-1 ring-slate-700")}><Upload size={21} aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-200">Drop a .txt or .log file here</p><p className="mt-1 text-xs leading-5 text-slate-400">Read locally in the browser · 60,000-character limit · 5 MB maximum file size</p>{loadedFileName && <p className="mt-1 truncate text-xs font-semibold text-emerald-300">Loaded: {loadedFileName}</p>}</div><button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"><FileText size={14} aria-hidden="true" /> Browse files</button></div>

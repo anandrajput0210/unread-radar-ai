@@ -172,6 +172,15 @@ test("a progress update never takes over a task that already has an owner", asyn
   const [t] = await run(["[16:00, 03/11/2026] Boss: Asha, please send the Q3 numbers.", "[16:10, 03/11/2026] Dev: Working on the numbers now."]);
   assert.equal(t.owner, "Asha");
 });
+test("a lifecycle update from a distinct same-first-name speaker is not attributed to the owner", async () => {
+  const [task] = await run([
+    "Ravi K: Ravi K, please update the invoice.",
+    "Ravi: Working on the invoice now.",
+  ]);
+  assert.equal(task.owner, "Ravi K");
+  assert.equal(task.lifecycleStatus, "assigned");
+  assert.equal(task.lifecycleEvents.some((event) => event.actor === "Ravi" && event.type === "in-progress"), false);
+});
 test('"I\'ll have it with you on Monday" links to the earlier request', async () => {
   const a = await run(["[10:00, 05/11/2026] Client: Could you send over the updated proposal by Monday?", "[10:05, 05/11/2026] Vikram: Yes, I'll have it with you on Monday morning."]);
   assert.equal(a.length, 1);
