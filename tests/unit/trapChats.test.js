@@ -88,9 +88,9 @@ test("a full name resolves despite another speaker sharing the first name", asyn
 
 test("a later-speaking same-first-name participant still makes an earlier address ambiguous", async () => {
   const { findings } = await analyze([
+    "Ravi K: I saw the latest draft.",
     "Asha Verma: Ravi, please review the draft.",
-    "Ravi K: I will review it.",
-    "Ravi S: I am checking the invoice.",
+    "Ravi S: The budget sheet is in the shared folder.",
   ].join("\n"));
 
   const task = taskContaining(findings, "review the draft");
@@ -114,8 +114,8 @@ test("a speaker's own commitment still identifies the claiming speaker", async (
 test("Hinglish first-name addresses are ambiguous with two matching speakers", async () => {
   const { findings } = await analyze([
     "Asha Verma: Ravi bhai, kal tak bhej dena.",
-    "Ravi K: I will send it.",
-    "Ravi S: I am reviewing the invoice.",
+    "Ravi K: The latest invoice is in the shared folder.",
+    "Ravi S: I saw the draft yesterday.",
   ].join("\n"));
 
   const task = taskContaining(findings, "kal tak bhej dena");

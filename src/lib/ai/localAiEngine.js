@@ -167,6 +167,7 @@ function mergeRuleFindings(rawText, modelAnalysis, sourceSnapshot) {
       messageTimestamp: item.messageTimestamp || null,
       messageDate: item.messageDate || null,
       ownerSource: item.ownerSource || null,
+      ownerBasis: item.ownerBasis || null,
       sourceSpan: item.sourceSpan,
       acknowledgedBy: item.acknowledgedBy || null,
       acknowledgementText: item.acknowledgementText || null,

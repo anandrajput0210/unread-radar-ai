@@ -13,6 +13,28 @@ import { conversationMessageRecords, parseChatRecord, recordMeta, resolveParseOp
 import { sourceSpan, uniqueBy, urgencyFor } from "./text.js";
 import { dueDateStatusForAction, extractDueSignal } from "./timing.js";
 import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
+import { ownerMatch } from "../views/catchUpBrief.js";
+
+function distinctChatSpeakers(records, options) {
+  const speakers = [];
+  const seen = new Set();
+  for (const record of records) {
+    const speaker = recordMeta(record, options).speaker;
+    if (!speaker) continue;
+    const key = speaker.normalize("NFC").trim().toLocaleLowerCase().split(/\s+/u).join(" ");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    speakers.push(speaker);
+  }
+  return speakers;
+}
+
+function ownerMatchesMultipleSpeakers(owner, speakers) {
+  const matches = speakers
+    .map((speaker) => ownerMatch(owner, speaker, speakers))
+    .filter((match) => match !== "no" && match !== "none");
+  return matches.length > 1 && !matches.includes("yes");
+}
 
 export function extractNamedFollowupTarget(body) {
   const match = String(body ?? "").match(/\b(?:thanks|thank\s+you)\s+(@?\p{L}[\p{L}\p{M}'’'-]*)/iu);
@@ -34,6 +56,7 @@ export function extractActions(text, options = {}) {
   const decisionEvidence = [];
   const blockedPreconditions = [];
   const records = conversationMessageRecords(text, options).filter((record) => record.text);
+  const speakers = distinctChatSpeakers(records, options);
 
   for (const record of records) {
     const line = record.text;
@@ -172,13 +195,17 @@ export function extractActions(text, options = {}) {
       // With several tasks in one message, a deadline belongs to the sentence it appears in.
       const dueDate = candidates.length > 1 ? dueWithinOwnSentence(body, candidateText, messageDue) : messageDue;
       const messageMeta = record.meta ?? parseChatRecord(String(record.rawText ?? line).split(/\r?\n/u)[0], options);
+      const ambiguousOwner = candidate.classification !== "self_commitment"
+        && candidate.owner
+        && ownerMatchesMultipleSpeakers(candidate.owner, speakers);
       const action = {
         id: `task-${record.ordinal}-${index}-${candidateText.slice(0, 16)}`,
         text: candidateText,
         sourceText: record.rawText || line,
         messageTimestamp: messageMeta.timestamp?.raw || null,
         messageDate: messageMeta.timestamp?.date || null,
-        owner: candidate.owner || null,
+        owner: ambiguousOwner ? null : candidate.owner || null,
+        ownerBasis: ambiguousOwner ? "ambiguous" : null,
         classification: taskClassificationFor(body, candidate),
         origin: candidate.origin || null,
         dueDate,
