@@ -7,6 +7,7 @@ export function TaskSourcePane({ snapshot, selection }) {
   const referenceStatus = selection?.referenceStatus || null;
   const selectedIndex = resolveSourceMessageIndex(snapshot, reference, referenceStatus);
   const hasSelection = selection !== null && selection !== undefined;
+  const validSelection = referenceStatus === "valid" && selectedIndex !== null;
   const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : [];
 
   useEffect(() => {
@@ -29,18 +30,21 @@ export function TaskSourcePane({ snapshot, selection }) {
         <p className="rounded-lg border border-slate-700/60 bg-slate-900/50 px-3 py-2 text-xs leading-5 text-slate-400">
           Select a task or evidence quote to inspect its source message.
         </p>
-      ) : (
+      ) : null}
+      {messages.length > 0 && (
         <ol className="max-h-[34rem] space-y-2 overflow-auto pr-1">
           {messages.map((message, index) => {
             const selected = index === selectedIndex;
+            const dimmed = validSelection && !selected;
             return (
               <li
                 key={message.messageId || `source-message-${index}`}
                 ref={selected ? selectedMessageRef : null}
                 aria-current={selected ? "true" : undefined}
+                data-dimmed={dimmed ? "true" : undefined}
                 className={selected
                   ? "rounded-xl border border-cyan-300/60 bg-cyan-300/[0.09] p-3 ring-2 ring-cyan-300/35"
-                  : "rounded-xl border border-slate-700/50 bg-slate-900/40 p-3"}
+                  : `rounded-xl border border-slate-700/50 bg-slate-900/40 p-3${dimmed ? " opacity-60 transition-opacity" : ""}`}
               >
                 <p className="mb-1 text-[11px] font-semibold text-slate-400">
                   Message {index + 1}{message.authorRaw ? ` · ${message.authorRaw}` : ""}{message.timestampRaw ? ` · ${message.timestampRaw}` : ""}

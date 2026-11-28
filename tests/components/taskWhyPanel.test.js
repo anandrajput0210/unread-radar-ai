@@ -5,8 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import reactPlugin from "@vitejs/plugin-react";
 import { createServer } from "vite";
 import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
+import { buildFollowUpMessage } from "../../src/lib/export/followUpMessage.js";
 import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
 import { listSpeakers } from "../../src/lib/views/catchUpBrief.js";
+import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
 import { TRAP_CHATS } from "../../src/lib/trapChats.js";
 
 let viteServer;
@@ -218,4 +220,29 @@ test("accepted possible task is ownerless and shows extraction and review status
   assert.match(markup, /Confirmed by you/u);
   assert.doesNotMatch(markup, /Needs a human look/u);
   assert.doesNotMatch(markup, /Assigned to you/u);
+});
+
+test("catch-up brief previews the generated follow-up message beside its copy control", async () => {
+  const [analysis, snapshot] = await Promise.all([
+    analyzeTextWithRules(SAMPLE_CHATS.english),
+    createSourceSnapshot(SAMPLE_CHATS.english),
+  ]);
+  const actions = [...analysis.actions, ...analysis.reviewQueue];
+  const followUp = buildFollowUpMessage(actions, {
+    statuses: {},
+    speakers: listSpeakers(snapshot),
+  });
+  const markup = renderToStaticMarkup(React.createElement(CatchUpBrief, {
+    actions: analysis.actions,
+    reviewQueue: analysis.reviewQueue,
+    snapshot,
+    statuses: {},
+    me: null,
+    onChangeMe() {},
+    onChangeAsOf() {},
+  }));
+
+  assert.ok(markup.includes(followUp.text));
+  assert.match(markup, /Copy follow-up message/u);
+  assert.match(markup, /aria-live="polite"/u);
 });

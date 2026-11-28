@@ -1,6 +1,42 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "./ui/Badge.jsx";
+import { buildFollowUpMessage } from "../lib/export/followUpMessage.js";
 import { PAST_DUE_LABEL, buildCatchUpBrief, hasGroundedOwner, listSpeakers } from "../lib/views/catchUpBrief.js";
+
+function copyWithFallback(text) {
+  if (typeof document === "undefined" || !document.body || typeof document.execCommand !== "function") {
+    throw new Error("Clipboard access is unavailable.");
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-10000px";
+  document.body.appendChild(textarea);
+  try {
+    textarea.select();
+    if (!document.execCommand("copy")) throw new Error("The browser declined the copy request.");
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function copyText(text) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (clipboardError) {
+      try {
+        copyWithFallback(text);
+        return;
+      } catch (fallbackError) {
+        throw new Error("Clipboard and fallback copy are unavailable.", { cause: fallbackError ?? clipboardError });
+      }
+    }
+  }
+  copyWithFallback(text);
+}
 
 function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses }) {
   if (!tasks.length) return null;
@@ -42,12 +78,27 @@ function Group({ title, hint, tasks, tone, onShowSource, pastDueIds, statuses })
  * Groups tasks by ownership for a catch-up brief.
  * The reader identifies themselves; extraction remains unchanged.
  */
-export function CatchUpBrief({ actions, snapshot, statuses, me, onChangeMe, asOf, onChangeAsOf, onShowSource }) {
+export function CatchUpBrief({ actions, reviewQueue = [], snapshot, statuses, me, onChangeMe, asOf, onChangeAsOf, onShowSource }) {
+  const [copyStatus, setCopyStatus] = useState("");
   const speakers = useMemo(() => listSpeakers(snapshot), [snapshot]);
   const brief = useMemo(() => buildCatchUpBrief(actions, { me, asOf, statuses, speakers }), [actions, me, asOf, statuses, speakers]);
   const pastDueIds = useMemo(() => new Set(brief.pastDue.map((t) => t.id)), [brief]);
+  const followUpActions = useMemo(() => [
+    ...(Array.isArray(actions) ? actions : []),
+    ...(Array.isArray(reviewQueue) ? reviewQueue : []),
+  ], [actions, reviewQueue]);
+  const followUp = useMemo(() => buildFollowUpMessage(followUpActions, { statuses, speakers }), [followUpActions, statuses, speakers]);
   const g = brief.groups;
   const empty = brief.counts.open === 0;
+
+  async function handleCopyFollowUp() {
+    try {
+      await copyText(followUp.text);
+      setCopyStatus("Copied");
+    } catch (error) {
+      setCopyStatus("Could not copy. Select the preview text to copy it.");
+    }
+  }
 
   return (
     <div className="space-y-4 rounded-2xl border border-indigo-300/20 bg-slate-900/50 p-4" id="catch-up-brief">
@@ -69,6 +120,16 @@ export function CatchUpBrief({ actions, snapshot, statuses, me, onChangeMe, asOf
       {asOf && !brief.asOfValid && <p className="text-xs text-amber-200">That date is not valid, so past-due checks are off.</p>}
       <p className="text-xs text-slate-400">{brief.counts.open} open · {brief.counts.done} closed · {brief.counts.pastDue} past due as of {brief.asOfValid ? asOf : "(no date)"}. Past due means a stated deadline has passed and no completion message was found in this chat. The work may have been completed outside this conversation.</p>
       {empty && <p className="text-xs text-slate-400">Nothing open to catch up on.</p>}
+      <section className="space-y-2 rounded-xl border border-slate-700/50 bg-slate-950/25 p-3" aria-label="Follow-up message">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Message preview</p>
+        <pre aria-label="Follow-up message preview" className="whitespace-pre-wrap break-words font-sans text-xs leading-5 text-slate-200">{followUp.text}</pre>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={handleCopyFollowUp} className="rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-300/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+            Copy follow-up message
+          </button>
+          <p aria-live="polite" className="text-xs text-emerald-200">{copyStatus}</p>
+        </div>
+      </section>
       <Group title="Assigned to you" tasks={g.assignedToYou} tone="blue" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Might be you" hint="The owner name could match more than one person in this chat." tasks={g.mightBeYou} tone="amber" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
       <Group title="Assigned to others" tasks={g.assignedToOthers} tone="slate" onShowSource={onShowSource} pastDueIds={pastDueIds} statuses={statuses} />
