@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
+import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
 import { TRAP_CHATS } from "../../src/lib/trapChats.js";
 
 const CLAIM_SOURCES = new Set([
@@ -49,10 +50,93 @@ test("kal-dekhenge does not resolve a due date", async () => {
   assert.ok(findings.every((finding) => finding.resolvedDueDate == null));
 });
 
-test("same-first-name does not guess which Ravi was addressed", {
-  skip: "Known gap: rules currently emit owner 'Ravi' for two speakers with that first name; see docs/known-gaps.md.",
-}, async () => {
-  const { findings } = await analyze(TRAP_CHATS["same-first-name"]);
-  assertNoConfidentOwner(findings, "same-first-name");
-  assert.ok(findings.every((finding) => !["Ravi Mehta", "Ravi Shah"].includes(finding.owner)));
+function taskContaining(findings, phrase) {
+  return findings.find((finding) => finding.text.toLocaleLowerCase().includes(phrase.toLocaleLowerCase()));
+}
+
+test("same-first-name does not guess which Ravi was addressed", async () => {
+  const { result, findings } = await analyze(TRAP_CHATS["same-first-name"]);
+  const task = taskContaining(findings, "draft invoice");
+
+  assert.ok(task, "the addressed task remains visible");
+  assert.equal(task.owner, null);
+  assert.equal(task.ownerBasis, "ambiguous");
+  assert.equal(task.sourceReferenceStatus, "valid");
+  assert.notEqual(task.owner, "Ravi Mehta");
+  assert.notEqual(task.owner, "Ravi Shah");
+  assert.doesNotMatch(JSON.stringify(result), /\b(?:missed|overdue)\b/iu);
+});
+
+test("a first name matching one speaker still resolves", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Nila, please review the draft.",
+    "Nila Rao: I will review it.",
+  ].join("\n"));
+
+  assert.equal(taskContaining(findings, "review the draft")?.owner, "Nila");
+});
+
+test("a full name resolves despite another speaker sharing the first name", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Ravi K, please review the draft.",
+    "Ravi K: I will review it.",
+    "Ravi S: I am checking the invoice.",
+  ].join("\n"));
+
+  assert.equal(taskContaining(findings, "review the draft")?.owner, "Ravi K");
+});
+
+test("a later-speaking same-first-name participant still makes an earlier address ambiguous", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Ravi, please review the draft.",
+    "Ravi K: I will review it.",
+    "Ravi S: I am checking the invoice.",
+  ].join("\n"));
+
+  const task = taskContaining(findings, "review the draft");
+  assert.ok(task);
+  assert.equal(task.owner, null);
+  assert.equal(task.ownerBasis, "ambiguous");
+});
+
+test("a speaker's own commitment still identifies the claiming speaker", async () => {
+  const { findings } = await analyze([
+    "Ravi K: I'll update the draft invoice.",
+    "Ravi S: I am checking the budget.",
+  ].join("\n"));
+
+  const task = taskContaining(findings, "update the draft invoice");
+  assert.ok(task);
+  assert.equal(task.owner, "Ravi K");
+  assert.equal(task.classification, "self_commitment");
+});
+
+test("Hinglish first-name addresses are ambiguous with two matching speakers", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Ravi bhai, kal tak bhej dena.",
+    "Ravi K: I will send it.",
+    "Ravi S: I am reviewing the invoice.",
+  ].join("\n"));
+
+  const task = taskContaining(findings, "kal tak bhej dena");
+  assert.ok(task);
+  assert.equal(task.owner, null);
+  assert.equal(task.ownerBasis, "ambiguous");
+});
+
+test("Hinglish first-name address resolves when only one speaker matches", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Ravi bhai, kal tak bhej dena.",
+    "Ravi K: I will send it.",
+  ].join("\n"));
+
+  assert.equal(taskContaining(findings, "kal tak bhej dena")?.owner, "Ravi");
+});
+
+test("English and Hinglish samples keep their unique named owners", async () => {
+  const english = await analyze(SAMPLE_CHATS.english);
+  const hinglish = await analyze(SAMPLE_CHATS.hinglish);
+
+  assert.equal(taskContaining(english.findings, "update the executive deck")?.owner, "Maria");
+  assert.equal(taskContaining(hinglish.findings, "GST invoice")?.owner, "Vikram");
 });
