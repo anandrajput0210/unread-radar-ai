@@ -8,6 +8,9 @@ const isolationHeaders = {
 };
 
 export default defineConfig({
+  define: {
+    __VERCEL_GIT_COMMIT_SHA__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA || ""),
+  },
   plugins: [react(), tailwindcss()],
   base: "./",
   server: {

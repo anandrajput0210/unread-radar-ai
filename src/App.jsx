@@ -30,6 +30,10 @@ import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
 import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
 import { diffSessions } from "./lib/views/whatChanged.js";
 
+const BUILD_ID = typeof __VERCEL_GIT_COMMIT_SHA__ === "string"
+  ? __VERCEL_GIT_COMMIT_SHA__.slice(0, 7)
+  : "";
+
 function getLocalStorage() {
   try {
     return window.localStorage;
@@ -751,7 +755,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-300/20 bg-slate-900/80 text-cyan-200 shadow-[0_0_28px_rgba(34,211,238,0.15)]"><Command size={22} strokeWidth={2.2} aria-hidden="true" /></div>
             <div>
-              <div className="flex items-center gap-2"><p className="text-lg font-extrabold tracking-tight text-white">unread radar</p><Badge tone="violet">ProtocolX</Badge></div>
+              <div className="flex items-center gap-2"><p className="text-lg font-extrabold tracking-tight text-white">Unread Radar AI</p><Badge tone="violet">ProtocolX</Badge></div>
               <p className="text-xs font-medium text-slate-400">On-device conversation intelligence</p>
             </div>
           </div>
@@ -946,7 +950,7 @@ export default function App() {
             />
           )}
 
-          <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU inference when available · Rules-only fallback otherwise</p></footer>
+          <footer className="mt-8 flex flex-col gap-3 border-t border-slate-700/50 pt-5 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between"><p className="inline-flex items-center gap-2"><ShieldCheck size={14} className="text-emerald-300" /> Chat analysis runs in the browser · No chat API calls</p><p>Unread Radar AI · WebGPU inference when available · Rules-only fallback otherwise{BUILD_ID && <> · Build {BUILD_ID}</>}</p><a href="https://github.com/anandrajput0210/unread-radar-ai" target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline underline-offset-2 hover:text-cyan-200">Source on GitHub</a></footer>
         </main>
         </TaskWhyDataContext.Provider>
       </div>

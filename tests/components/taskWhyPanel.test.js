@@ -1,5 +1,6 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import reactPlugin from "@vitejs/plugin-react";
@@ -92,6 +93,52 @@ test("the input panel renders the one-click demo and load-and-analyze variants",
   assert.match(markup, /Load English and analyze/u);
   assert.match(markup, /Load Hinglish and analyze/u);
   assert.match(markup, /aria-label="Load and analyze same first name trap chat"/u);
+});
+
+test("the header brand and document title use the same product casing", () => {
+  const markup = renderToStaticMarkup(React.createElement(App));
+  const document = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+
+  assert.match(markup, /<p\b[^>]*>Unread Radar AI<\/p>/u);
+  assert.match(document, /<title>Unread Radar AI<\/title>/u);
+});
+
+test("the footer links to the source repository with a safe new tab", () => {
+  const markup = renderToStaticMarkup(React.createElement(App));
+  const sourceLink = markup.match(/<a\b[^>]*>Source on GitHub<\/a>/u)?.[0];
+
+  assert.ok(sourceLink, "the footer should render a source link");
+  assert.match(sourceLink, /href="https:\/\/github\.com\/anandrajput0210\/unread-radar-ai"/u);
+  assert.match(sourceLink, /target="_blank"/u);
+  assert.match(sourceLink, /rel="noopener noreferrer"/u);
+});
+
+test("the footer omits a build id when no Vercel SHA is defined", () => {
+  const markup = renderToStaticMarkup(React.createElement(App));
+
+  assert.doesNotMatch(markup, /\bBuild [\da-f]{7}\b/iu);
+});
+
+test("the footer shows only the first seven characters of a Vercel SHA", async () => {
+  const buildServer = await createServer({
+    configFile: false,
+    root: process.cwd(),
+    define: { __VERCEL_GIT_COMMIT_SHA__: JSON.stringify("1234567890abcdef") },
+    plugins: [reactPlugin()],
+    optimizeDeps: { noDiscovery: true, include: [] },
+    server: { middlewareMode: true, hmr: { port: 24679 } },
+    appType: "custom",
+  });
+
+  try {
+    const { default: BuildApp } = await buildServer.ssrLoadModule("/src/App.jsx");
+    const markup = renderToStaticMarkup(React.createElement(BuildApp));
+
+    assert.match(markup, /\bBuild 1234567\b/u);
+    assert.doesNotMatch(markup, /\bBuild 12345678/u);
+  } finally {
+    await buildServer.close();
+  }
 });
 
 test("the header summary is visible and privacy details stay collapsed with the original caveats", () => {
