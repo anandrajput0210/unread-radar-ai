@@ -1,5 +1,11 @@
 # Changelog
 
+## Ambiguous first-name owner safety — 2026-11-28
+
+- Leave a name-only owner unknown when multiple chat participants match, while preserving unique-name resolution and speaker claims.
+- Keep ambiguous tasks out of person-assigned catch-up groups and show the ambiguity reason in the Why panel.
+- Record owner changes to an ambiguous/unknown value in the persistence comparison.
+
 ## Final cross-phase review corrections — 2026-11-25
 
 - Kept accepted possible extraction outcomes visible as possible while separating human review decisions in task explanations, catch-up grouping, and exports.

@@ -105,6 +105,7 @@ Run `npm run bench:v2` to reproduce these results for the current branch. These 
 ## Limitations
 
 - The rules engine is conservative and will miss some tasks or leave owners and dates unknown.
+- Owner is left unknown when a name matches more than one chat participant.
 - Exact quotation validity proves that text exists at a source location; it does not prove that the interpretation is correct.
 - A chat’s silence does not prove a task was missed or completed.
 - The catch-up brief only says “assigned” when its owner match and participant identity checks pass; assignment alone does not mean someone is waiting.

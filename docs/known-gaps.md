@@ -1,7 +1,11 @@
 # Known gaps
 
-- **Same-first-name addressee ambiguity:** the `same-first-name` trap chat contains two speakers
-  named Ravi and the instruction “Ravi, please check the draft invoice for errors.” Rules-only
-  extraction currently emits the owner as `Ravi` with a confirmed assigned-task classification.
-  The instruction does not identify which Ravi, so this is not a safe individual assignment.
-  This Phase 5 demo records the behavior as a skipped test and does not change extraction rules.
+No currently tracked known gaps.
+
+## Fixed gaps
+
+- **Same-first-name addressee ambiguity — fixed in `e66b3f7`:** the `same-first-name` trap chat
+  contains two speakers named Ravi and the instruction “Ravi, please check the draft invoice for
+  errors.” Phase 5 documented that rules-only extraction emitted owner `Ravi` as a confirmed
+  assignment and kept the regression test skipped. The fix leaves the owner unknown when more than
+  one chat participant matches.
