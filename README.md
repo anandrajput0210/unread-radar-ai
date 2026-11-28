@@ -2,7 +2,7 @@
 
 **Turn a long chat export into an evidence-linked catch-up brief, locally in your browser.**
 
-> Live demo: <to be added by owner>
+> Live demo: https://unread-radar-ai-six.vercel.app/
 >
 > **English sample follow-up preview**
 >

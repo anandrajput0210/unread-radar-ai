@@ -91,7 +91,7 @@ export function buildExecutiveBrief({ analysis, taskStatuses, loadedFileName }) 
     `- **High-urgency source rows:** ${analysis.urgentRows.length} (${toPercent(analysis.urgentRows.length, lineCount)}%)`,
     `- **Possible extraction outcomes:** ${analysis.actions.filter((task) => task.outcome === "possible").length}`,
     `- **Action items:** ${analysis.actions.length} (${toPercent(analysis.actions.length, lineCount)}% of rows)`,
-    `- **Missed mentions:** ${analysis.mentions.length}`,
+    `- **Direct mentions:** ${analysis.mentions.length}`,
     "",
     "## Action Items",
     "",

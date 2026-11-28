@@ -83,7 +83,7 @@ const FRAMES = [
     re: word(String.raw`(?:someone|somebody|anyone)\s+(?:needs?\s+to|has\s+to|should|must)\s+\p{L}+`),
   },
   {
-    reason: "pending-followup", label: "Waiting on / pending item", skipNegated: false,
+    reason: "pending-followup", label: "Pending item", skipNegated: false,
     re: word(String.raw`still\s+waiting|waiting\s+(?:for|on)|awaiting|yet\s+to\s+(?:receive|get)|not\s+(?:yet\s+)?(?:received|here|ready)|(?:is|are)\s+(?:still\s+)?pending|pending\s+(?:hai|h|from)|abhi\s+tak\s+nahi?n?\s+\p{L}+|nahi?n?\s+aaya|baaki\s+hai|अभी\s+तक\s+नहीं|इंतज़ार`),
   },
   {
