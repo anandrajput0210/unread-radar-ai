@@ -11,7 +11,7 @@ import { addSupportingDetail, findUniqueOwnedAction, findUniquePriorAction, matc
 import { conversationMessageRecords, parseChatRecord, recordMeta, resolveParseOptions } from "./records.js";
 import { sourceSpan, uniqueBy, urgencyFor } from "./text.js";
 import { dueDateStatusForAction, extractDueSignal } from "./timing.js";
-import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
+import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim, isWithinClaimWindow } from "./claims.js";
 export function extractNamedFollowupTarget(body) {
   const match = String(body ?? "").match(/\b(?:thanks|thank\s+you)\s+(@?\p{L}[\p{L}\p{M}'’'-]*)/iu);
   return match?.[1]?.trim() || null;
@@ -364,35 +364,58 @@ export function extractActions(text, options = {}) {
   };
 }
 
+function hasAnaphoricObject(text) {
+  const words = String(text ?? "").toLocaleLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) || [];
+  const last = words[words.length - 1];
+  const previous = words[words.length - 2];
+  return PRONOUN_OBJECTS.has(last) || (last === "one" && PRONOUN_OBJECTS.has(previous));
+}
+
 function applyCompetingCommitmentDisputes(actions, records, options, speakers) {
-  for (let index = 0; index < records.length - 1; index += 1) {
-    const claimRecord = records[index];
+  for (const claimRecord of records) {
     const { speaker: claimant, body: claimText } = recordMeta(claimRecord, options);
-    if (!claimant || !/^\s*(?:(?:sure|yes|yep|yeah|absolutely|of\s+course)[,!\s]+)?(?:i['’]?ll\s+(?:do|take)\s+it|i\s+am\s+on\s+it|on\s+it|will\s+do)[.! ]*\s*$/iu.test(claimText)) continue;
+    if (!claimant) continue;
 
-    const responseRecord = records[index + 1];
-    const { speaker: taskOwner, body: responseText } = recordMeta(responseRecord, options);
-    const acknowledgedName = extractNamedFollowupTarget(responseText);
-    if (!taskOwner || !acknowledgedName
-      || !ownerMatchesSpeaker(acknowledgedName, claimant)
-      || ownerMatchesMultipleSpeakers(acknowledgedName, speakers)) continue;
+    const commitmentActions = actions.filter((action) => action.sourceSpan.startOffset === claimRecord.startOffset
+      && action.classification === "self_commitment"
+      && ownerMatchesSpeaker(action.owner, claimant));
+    const firstPersonAcknowledgement = matchesAcknowledgement(claimText)
+      && /\bI\b/iu.test(claimText)
+      && hasAnaphoricObject(claimText);
+    if (!commitmentActions.length && !firstPersonAcknowledgement) continue;
 
-    const ownedTasks = actions.filter((action) => action.sourceSpan.startOffset < claimRecord.startOffset
+    const commitmentTexts = commitmentActions.length
+      ? commitmentActions.map((action) => action.text)
+      : [claimText];
+    const priorOwnedTasks = actions.filter((action) => action.sourceSpan.startOffset < claimRecord.startOffset
       && action.owner
-      && ownerMatchesSpeaker(action.owner, taskOwner)
-      && !ownerMatchesSpeaker(action.owner, claimant)
       && !ownerMatchesMultipleSpeakers(action.owner, speakers)
-      && !["completed", "cancelled"].includes(action.lifecycleStatus));
-    if (ownedTasks.length !== 1) continue;
+      && !["completed", "cancelled"].includes(action.lifecycleStatus)
+      && isWithinClaimWindow(records, action, claimRecord));
+    const scoredTasks = priorOwnedTasks
+      .map((action) => ({
+        action,
+        score: Math.max(...commitmentTexts.map((text) => relationScore(action.text, text))),
+      }))
+      .filter(({ score }) => score >= CLAIM_CONTENT_THRESHOLD)
+      .sort((left, right) => right.score - left.score);
 
-    const [action] = ownedTasks;
+    let action = null;
+    if (scoredTasks.length === 1
+      || (scoredTasks.length > 1 && scoredTasks[0].score - scoredTasks[1].score >= 0.12)) {
+      action = scoredTasks[0].action;
+    } else if (commitmentTexts.some(hasAnaphoricObject) && priorOwnedTasks.length === 1) {
+      action = priorOwnedTasks[0];
+    }
+    if (!action || ownerMatchesSpeaker(action.owner, claimant)) continue;
+
     const previousOwner = action.owner;
     action.owner = null;
     action.ownerBasis = "disputed";
     action.ownerCandidateName = previousOwner;
     action.ownerSource = null;
     if (!["completed", "cancelled"].includes(action.lifecycleStatus)) action.lifecycleStatus = "open";
-    const event = {
+    action.lifecycleEvents.push({
       type: "ownership-disputed",
       actor: claimant,
       text: claimText,
@@ -401,9 +424,15 @@ function applyCompetingCommitmentDisputes(actions, records, options, speakers) {
       messageDate: claimRecord.meta?.timestamp?.date || null,
       previousOwner,
       newOwner: null,
-    };
-    action.lifecycleEvents.push(event);
+    });
     addSupportingDetail(action, claimRecord, claimText, "lifecycle:ownership-disputed");
+
+    for (const commitmentAction of commitmentActions) {
+      if (relationScore(action.text, commitmentAction.text) < CLAIM_CONTENT_THRESHOLD
+        && !hasAnaphoricObject(commitmentAction.text)) continue;
+      const commitmentIndex = actions.indexOf(commitmentAction);
+      if (commitmentIndex >= 0) actions.splice(commitmentIndex, 1);
+    }
   }
 }
 

@@ -45,6 +45,46 @@ test("a competing commitment disputes the named owner without assigning the volu
   assert.equal(task.lifecycleEvents.find((event) => event.text === "I'll take it.")?.sourceReferenceStatus, "valid");
 });
 
+const generalizedDisputeChats = [
+  {
+    title: "\"I can handle that\" disputes the existing owner",
+    claim: "I can handle that.",
+    response: "great, thanks Ben",
+  },
+  {
+    title: "\"Let me take this one\" disputes the existing owner",
+    claim: "Let me take this one.",
+    response: "Thanks.",
+  },
+  {
+    title: "\"I'll take it\" disputes without a named acknowledgement",
+    claim: "I'll take it.",
+    response: "ok",
+    respondent: "Asha",
+  },
+];
+
+for (const scenario of generalizedDisputeChats) {
+  test(scenario.title, async () => {
+    const claimant = "Ben";
+    const { analysis } = await analyzeChat([
+      "Asha: Neha, please send the vendor quotation.",
+      `${claimant}: ${scenario.claim}`,
+      `${scenario.respondent || "Neha"}: ${scenario.response}`,
+    ].join("\n"));
+    const task = analysis.actions.find((action) => action.text.includes("vendor quotation"));
+
+    assert.ok(task);
+    assert.equal(task.owner, null);
+    assert.equal(task.ownerBasis, "disputed");
+    assert.equal(task.ownerCandidateName, "Neha");
+    assert.ok(task.lifecycleEvents.some((event) => event.type === "ownership-disputed"
+      && event.actor === claimant
+      && event.text === scenario.claim));
+    assert.equal(analysis.actions.some((action) => action.owner === claimant), false);
+  });
+}
+
 test("a different speaker's generic volunteer does not claim an ambiguously addressed task", async () => {
   const { analysis } = await analyzeChat(ambiguousClaimChat);
   const task = analysis.actions.find((action) => action.text.includes("update the invoice"));
@@ -53,6 +93,28 @@ test("a different speaker's generic volunteer does not claim an ambiguously addr
   assert.equal(task.owner, null);
   assert.equal(task.ownerBasis, "ambiguous");
   assert.equal(task.ownerCandidateName, "Ravi");
+});
+
+test("the existing owner acknowledgement keeps the task with that owner", async () => {
+  const { analysis } = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Neha: I'll send it.",
+  ].join("\n"));
+  const task = analysis.actions.find((action) => action.text.includes("vendor quotation"));
+
+  assert.equal(task?.owner, "Neha");
+  assert.notEqual(task?.ownerBasis, "disputed");
+});
+
+test("a different speaker's commitment to unrelated work does not dispute the task", async () => {
+  const { analysis } = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Ben: I'll update the calendar.",
+  ].join("\n"));
+  const task = analysis.actions.find((action) => action.text.includes("vendor quotation"));
+
+  assert.equal(task?.owner, "Neha");
+  assert.notEqual(task?.ownerBasis, "disputed");
 });
 
 test("unique names, self-claims, named handovers, unowned claims, and samples keep their owners", async () => {
@@ -72,6 +134,14 @@ test("unique names, self-claims, named handovers, unowned claims, and samples ke
   ].join("\n"));
   const handedOverTask = handover.analysis.actions.find((action) => action.text.includes("update the invoice"));
   assert.equal(handedOverTask?.owner, "Priya");
+
+  const namedHandover = await analyzeChat([
+    "Asha: Neha, please send the vendor quotation.",
+    "Neha: Ben will take over the vendor quotation.",
+  ].join("\n"));
+  const explicitlyHandedOver = namedHandover.analysis.actions.find((action) => action.text.includes("vendor quotation"));
+  assert.equal(explicitlyHandedOver?.owner, "Ben");
+  assert.ok(explicitlyHandedOver?.lifecycleEvents.some((event) => event.type === "reassigned"));
 
   const unowned = await analyzeChat([
     "Asha: Please send the invoice by Friday.",
