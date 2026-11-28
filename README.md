@@ -44,8 +44,8 @@ Open the local URL printed by Vite and choose **Run 60-second demo** for a one-c
 Input:
 
 ```text
-[14:05, 12/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.
-[14:06, 12/10/2024] Maria Garcia: Sure, I will update it.
+[14:05, 14/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.
+[14:06, 14/10/2024] Maria Garcia: Sure, I will update it.
 ```
 
 Current rules-only output:
@@ -56,7 +56,7 @@ Current rules-only output:
 
 Evidence shown on the task:
 
-> `[14:05, 12/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.`
+> `[14:05, 14/10/2024] Alex Johnson: They are in the shared drive. Maria, please update the executive deck with these requests by Friday 5 PM.`
 
 This is an illustrative result from a small authored sample, not a claim about real-world accuracy.
 

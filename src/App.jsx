@@ -921,7 +921,7 @@ export default function App() {
                           })}
                         </div>
                       ) : (
-                        <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : "The local model did not identify action items in this log."} />
+                        <EmptyState icon={ClipboardList} title={analysis.actions.length ? "No matching tasks" : "No action items returned"} description={analysis.actions.length ? "Try a different query or urgency level." : analysis.analysisMode === "rules-only" ? "No tasks found. Nothing in this chat clearly assigns work, so nothing was assigned." : "The local model did not identify action items in this log."} />
                       )}
                       <TaskSourcePane snapshot={sourceSnapshot} selection={selectedSource} />
                     </div>
