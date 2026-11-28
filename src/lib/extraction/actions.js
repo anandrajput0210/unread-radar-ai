@@ -5,37 +5,13 @@ import { extractImpliedRequest } from "./implied.js";
 import { extractCollective } from "./collective.js";
 import { sameVerbFamily } from "./lifecycle.js";
 import { DEADLINE_WORDS, PRONOUN_OBJECTS } from "./constants.js";
-import { relationTokens } from "./matching.js";
 import { resolveDeadlineDate } from "./dates.js";
 import { applyTaskLifecycle } from "./lifecycle.js";
-import { addSupportingDetail, findUniqueOwnedAction, findUniquePriorAction, matchesAcknowledgement, ownerMatchesSpeaker, relationScore } from "./matching.js";
+import { addSupportingDetail, findUniqueOwnedAction, findUniquePriorAction, matchesAcknowledgement, ownerMatchesMultipleSpeakers, ownerMatchesSpeaker, relationScore, relationTokens, uniqueSpeakerNames } from "./matching.js";
 import { conversationMessageRecords, parseChatRecord, recordMeta, resolveParseOptions } from "./records.js";
 import { sourceSpan, uniqueBy, urgencyFor } from "./text.js";
 import { dueDateStatusForAction, extractDueSignal } from "./timing.js";
 import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
-import { ownerMatch } from "../views/catchUpBrief.js";
-
-function distinctChatSpeakers(records, options) {
-  const speakers = [];
-  const seen = new Set();
-  for (const record of records) {
-    const speaker = recordMeta(record, options).speaker;
-    if (!speaker) continue;
-    const key = speaker.normalize("NFC").trim().toLocaleLowerCase().split(/\s+/u).join(" ");
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    speakers.push(speaker);
-  }
-  return speakers;
-}
-
-function ownerMatchesMultipleSpeakers(owner, speakers) {
-  const matches = speakers
-    .map((speaker) => ownerMatch(owner, speaker, speakers))
-    .filter((match) => match !== "no" && match !== "none");
-  return matches.length > 1 && !matches.includes("yes");
-}
-
 export function extractNamedFollowupTarget(body) {
   const match = String(body ?? "").match(/\b(?:thanks|thank\s+you)\s+(@?\p{L}[\p{L}\p{M}'’'-]*)/iu);
   return match?.[1]?.trim() || null;
@@ -56,7 +32,7 @@ export function extractActions(text, options = {}) {
   const decisionEvidence = [];
   const blockedPreconditions = [];
   const records = conversationMessageRecords(text, options).filter((record) => record.text);
-  const speakers = distinctChatSpeakers(records, options);
+  const speakers = uniqueSpeakerNames(records.map((record) => recordMeta(record, options).speaker));
 
   for (const record of records) {
     const line = record.text;
@@ -206,6 +182,7 @@ export function extractActions(text, options = {}) {
         messageDate: messageMeta.timestamp?.date || null,
         owner: ambiguousOwner ? null : candidate.owner || null,
         ownerBasis: ambiguousOwner ? "ambiguous" : null,
+        ownerCandidateName: ambiguousOwner ? candidate.owner : null,
         classification: taskClassificationFor(body, candidate),
         origin: candidate.origin || null,
         dueDate,
@@ -283,7 +260,14 @@ export function extractActions(text, options = {}) {
       if (!previous && candidate.origin === "self_commitment" && action.owner
         && !speakerHasConflictingOpenOwnedTask(actions, records, record, speaker, options, action.text)) {
         previous = findClaimableRequest(actions, action, record, records, speaker, options, { bare: Boolean(candidate.bare) });
-        if (previous) { previous.owner = action.owner; previous.classification = "assigned_task"; previous.ownerSource = "claimed_by_commitment"; confirmByAcceptance(previous); }
+        if (previous) {
+          previous.owner = action.owner;
+          previous.ownerBasis = null;
+          previous.ownerCandidateName = null;
+          previous.classification = "assigned_task";
+          previous.ownerSource = "claimed_by_commitment";
+          confirmByAcceptance(previous);
+        }
       }
       if (previous) {
         const isAcknowledgement = /^(?:got\s+it|understood|yes|sure|okay|ok|noted|thanks|thank\s+you)\b/iu.test(body);
@@ -336,7 +320,13 @@ export function extractActions(text, options = {}) {
     const justAsked = actions.filter((action) =>
       isEligibleUnownedClaim(records, action, record, speaker, options));
     let possibleMatches = justAsked.length === 1
-      ? (Object.assign(justAsked[0], { owner: speaker, classification: "assigned_task", ownerSource: "unique_acknowledgement" }), confirmByAcceptance(justAsked[0]), justAsked)
+      ? (Object.assign(justAsked[0], {
+        owner: speaker,
+        ownerBasis: null,
+        ownerCandidateName: null,
+        classification: "assigned_task",
+        ownerSource: "unique_acknowledgement",
+      }), confirmByAcceptance(justAsked[0]), justAsked)
       : actions.filter((action) =>
         action.sourceSpan.startOffset < record.startOffset && ownerMatchesSpeaker(action.owner, speaker)
       );
@@ -350,6 +340,8 @@ export function extractActions(text, options = {}) {
       );
       if (unassigned.length === 1) {
         unassigned[0].owner = speaker;
+        unassigned[0].ownerBasis = null;
+        unassigned[0].ownerCandidateName = null;
         unassigned[0].classification = "assigned_task";
         unassigned[0].ownerSource = "unique_acknowledgement";
         confirmByAcceptance(unassigned[0]);
@@ -364,7 +356,7 @@ export function extractActions(text, options = {}) {
   }
 
   const uniqueActions = uniqueBy(actions, (item) => `${item.text.toLowerCase()}|${(item.owner || "").toLowerCase()}`);
-  applyTaskLifecycle(uniqueActions, records, options);
+  applyTaskLifecycle(uniqueActions, records, options, speakers);
   return {
     actions: uniqueActions,
     decisions: uniqueBy(decisions, (item) => item.toLowerCase()),

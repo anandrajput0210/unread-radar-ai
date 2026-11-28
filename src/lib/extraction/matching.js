@@ -1,5 +1,6 @@
 import { RELATION_STOP_WORDS, TASK_VERB_SET } from "./constants.js";
 import { sourceSpan } from "./text.js";
+import { ownerMatch } from "../views/catchUpBrief.js";
 
 export function matchesAcknowledgement(body) {
   return /^\s*(?:(?:sure|yes|yep|ok(?:ay)?|alright|absolutely)[,!\s]+)?(?:i['’]?m\s+on\s+it|i\s+am\s+on\s+it|on\s+it|will\s+do|i['’]?ll\s+(?:do\s+it|take\s+it)|got\s+it|consider\s+it\s+done|i\s+can\s+handle\s+that)[.!\s]*$/iu.test(body)
@@ -15,6 +16,24 @@ export function ownerMatchesSpeaker(owner, speaker) {
   const firstOwnerToken = ownerName.split(/\s+/)[0];
   const firstSpeakerToken = speakerName.split(/\s+/)[0];
   return firstOwnerToken.length > 1 && firstOwnerToken === firstSpeakerToken;
+}
+
+export function uniqueSpeakerNames(speakers) {
+  const seen = new Set();
+  return (Array.isArray(speakers) ? speakers : []).filter((speaker) => {
+    if (typeof speaker !== "string" || !speaker.trim()) return false;
+    const key = speaker.normalize("NFC").trim().toLocaleLowerCase().split(/\s+/u).join(" ");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function ownerMatchesMultipleSpeakers(owner, speakers) {
+  const matches = speakers
+    .map((speaker) => ownerMatch(owner, speaker, speakers))
+    .filter((match) => match !== "no" && match !== "none");
+  return matches.length > 1 && !matches.includes("yes");
 }
 
 export function relationTokens(text) {

@@ -1,7 +1,7 @@
 import { extractSelfCommitment } from "./candidates.js";
 import { DEADLINE_WORDS, DELAY_CUE, TASK_VERB_SOURCE, PRONOUN_OBJECTS, RESERVED_SPEAKERS, escapeRegex } from "./constants.js";
 import { resolveDeadlineDate } from "./dates.js";
-import { addSupportingDetail, matchesAcknowledgement, ownerMatchesSpeaker, relationScore, relationTokens } from "./matching.js";
+import { addSupportingDetail, matchesAcknowledgement, ownerMatchesMultipleSpeakers, ownerMatchesSpeaker, relationScore, relationTokens, uniqueSpeakerNames } from "./matching.js";
 import { recordMeta } from "./records.js";
 import { CLAIM_CONTENT_THRESHOLD, isEligibleUnownedClaim } from "./claims.js";
 import { isNegatedAt, sourceSpan } from "./text.js";
@@ -119,7 +119,11 @@ export function statusForEvent(type, action) {
   return type;
 }
 
-export function applyTaskLifecycle(actions, records, options = {}) {
+export function applyTaskLifecycle(actions, records, options = {}, participants = null) {
+  const speakers = Array.isArray(participants)
+    ? participants
+    : uniqueSpeakerNames(records.map((record) => recordMeta(record, options).speaker));
+
   for (const action of actions) {
     action.lifecycleStatus = action.owner ? "assigned" : "open";
     action.lifecycleEvents = [];
@@ -262,9 +266,12 @@ export function applyTaskLifecycle(actions, records, options = {}) {
     if (eventType === "reassigned") {
       const nextOwner = extractReassignmentOwner(body);
       if (!nextOwner || ownerMatchesSpeaker(target.owner, nextOwner)) continue;
+      const ambiguousOwner = ownerMatchesMultipleSpeakers(nextOwner, speakers);
       event.previousOwner = target.owner || null;
-      event.newOwner = nextOwner;
-      target.owner = nextOwner;
+      event.newOwner = ambiguousOwner ? null : nextOwner;
+      target.owner = ambiguousOwner ? null : nextOwner;
+      target.ownerBasis = ambiguousOwner ? "ambiguous" : null;
+      target.ownerCandidateName = ambiguousOwner ? nextOwner : null;
       target.classification = "assigned_task";
       target.ownerSource = "conversation_reassignment";
       target.lifecycleStatus = "reassigned";

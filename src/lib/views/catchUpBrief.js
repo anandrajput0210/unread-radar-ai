@@ -118,7 +118,9 @@ export function buildCatchUpBrief(actions, { me = null, asOf = null, statuses = 
       continue;
     }
     if (task.ownerBasis === "ambiguous") {
-      groups.mightBeYou.push(task);
+      const candidateMatch = ownerMatch(task.ownerCandidateName, me, speakerList);
+      if (candidateMatch === "yes" || candidateMatch === "unsure") groups.mightBeYou.push(task);
+      else groups.noOwner.push(task);
       continue;
     }
     if (!hasGroundedOwner(task)) { groups.noOwner.push(task); continue; }

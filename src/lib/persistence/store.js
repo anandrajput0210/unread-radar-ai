@@ -110,6 +110,7 @@ function isTaskRecord(value) {
     || !isOptionalString(value.ownerSource)
     || !isOptionalString(value.outcomeReason)
     || !isOptionalString(value.extractionOutcomeReason)
+    || !isOptionalString(value.ownerCandidateName)
     || !isOptionalString(value.dueDate)
     || !isOptionalString(value.resolvedDueDate)
     || !isOptionalString(value.dueDateStatus)
