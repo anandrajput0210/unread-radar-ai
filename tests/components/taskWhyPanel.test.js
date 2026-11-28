@@ -109,6 +109,14 @@ test("the header summary is visible and privacy details stay collapsed with the 
   assert.match(disclosure[2], /This storage is not encrypted and clearing it does not guarantee forensic erasure\./u);
   assert.match(disclosure[2], /When unchecked, analysis uses deterministic local patterns only/u);
   assert.match(disclosure[2], /AI output can contain errors\. Verify important dates, owners, decisions, and urgency classifications against the original conversation\./u);
+  assert.match(disclosure[2], /What it can&#x27;t do yet/u);
+  assert.match(disclosure[2], /Rules-based extraction misses phrasings its patterns do not recognize\./u);
+  assert.match(disclosure[2], /A generic “I can\.” volunteer on an open request is not treated as a claim\./u);
+  assert.match(disclosure[2], /Two participants named Ravi K and Ravi S leave a first-name-only “Ravi” owner unknown\./u);
+  assert.match(disclosure[2], /Exact-name overlap such as “Ravi” and “Ravi S” remains a known gap\./u);
+  assert.match(disclosure[2], /The benchmark is synthetic and makes no real-world accuracy claim\./u);
+  assert.match(disclosure[2], /One chat at a time, with a 60,000-character analysis limit\./u);
+  assert.match(disclosure[2], /Import is by pasting text or selecting a local \.txt or \.log file\./u);
 });
 
 test("possible-task panel renders its explicit caveat", () => {

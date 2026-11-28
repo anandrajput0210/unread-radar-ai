@@ -781,6 +781,15 @@ export default function App() {
             <p>When unchecked, analysis uses deterministic local patterns only and does not load the WebLLM runtime. In either mode, conversation text is processed in the browser and is not sent to a cloud AI endpoint.</p>
             <p>Rules-only analysis is the default and does not load WebLLM. Only after you enable on-device AI and run an analysis does the app check WebGPU and, if compatible, download/cache model weights and run inference on this device. If adapter/device setup fails, the app falls back to local rules. Conversation contents are not posted to a cloud AI endpoint. Saved analysis and review data is written to this browser only when the separate persistence toggle is on.</p>
             <p>AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p>
+            <h3 className="pt-1 font-bold text-slate-200">What it can't do yet</h3>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Rules-based extraction misses phrasings its patterns do not recognize.</li>
+              <li>A generic “I can.” volunteer on an open request is not treated as a claim.</li>
+              <li>Two participants named Ravi K and Ravi S leave a first-name-only “Ravi” owner unknown. Exact-name overlap such as “Ravi” and “Ravi S” remains a known gap.</li>
+              <li>The benchmark is synthetic and makes no real-world accuracy claim.</li>
+              <li>One chat at a time, with a 60,000-character analysis limit.</li>
+              <li>Import is by pasting text or selecting a local .txt or .log file.</li>
+            </ul>
           </div>
         </details>
 
