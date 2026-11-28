@@ -15,6 +15,7 @@ let viteServer;
 let TaskWhyPanel;
 let TaskCard;
 let CatchUpBrief;
+let App;
 
 before(async () => {
   viteServer = await createServer({
@@ -28,6 +29,7 @@ before(async () => {
   ({ TaskWhyPanel } = await viteServer.ssrLoadModule("/src/components/TaskWhyPanel.jsx"));
   ({ TaskCard } = await viteServer.ssrLoadModule("/src/components/TaskCard.jsx"));
   ({ CatchUpBrief } = await viteServer.ssrLoadModule("/src/components/CatchUpBrief.jsx"));
+  ({ default: App } = await viteServer.ssrLoadModule("/src/App.jsx"));
 });
 
 after(async () => {
@@ -62,6 +64,34 @@ test("unknown-owner panel states that no owner was established without naming a 
 
   assert.match(markup, /No owner was named or claimed in this chat\. Not guessing\./u);
   assert.doesNotMatch(markup, /Alex Johnson/u);
+});
+
+test("the disputed-owner explanation renders in an initially expanded Why panel", () => {
+  const markup = renderToStaticMarkup(React.createElement(TaskWhyPanel, {
+    task: {
+      id: "disputed-task",
+      text: "Send the quotation",
+      owner: null,
+      ownerBasis: "disputed",
+      outcome: "confirmed",
+      lifecycleEvents: [],
+    },
+    initiallyExpanded: true,
+    speakers: ["Neha", "Ben"],
+  }));
+
+  assert.match(markup, /aria-expanded="true"/u);
+  assert.match(markup, /More than one person may own this\. Not guessing\./u);
+  assert.doesNotMatch(markup.match(/Owner basis[^<]*/u)?.[0] || "", /\b(?:Neha|Ben)\b/u);
+});
+
+test("the input panel renders the one-click demo and load-and-analyze variants", () => {
+  const markup = renderToStaticMarkup(React.createElement(App));
+
+  assert.match(markup, /Run 60-second demo/u);
+  assert.match(markup, /Load English and analyze/u);
+  assert.match(markup, /Load Hinglish and analyze/u);
+  assert.match(markup, /aria-label="Load and analyze same first name trap chat"/u);
 });
 
 test("possible-task panel renders its explicit caveat", () => {

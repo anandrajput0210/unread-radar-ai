@@ -203,7 +203,7 @@ export function TaskCard(props) {
   return (
     <div className="space-y-2">
       <TaskCardContent {...props} />
-      <TaskWhyPanel task={props.task} reviewStatus={props.status} onShowSource={props.onShowSource} />
+      <TaskWhyPanel task={props.task} reviewStatus={props.status} onShowSource={props.onShowSource} initiallyExpanded={props.whyInitiallyExpanded} />
     </div>
   );
 }

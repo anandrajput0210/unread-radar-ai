@@ -24,6 +24,7 @@ import { buildPriorityView } from "./lib/views/priorityView.js";
 import { buildExecutiveBrief, buildCopySummary } from "./lib/export/report.js";
 import { SAMPLE_CHATS } from "./lib/sampleChats.js";
 import { TRAP_CHATS } from "./lib/trapChats.js";
+import { DEMO_CHAT } from "./lib/demoChat.js";
 import { selectAnalysisMode } from "./lib/ai/modelConsent.js";
 import { WhatChangedPanel } from "./components/WhatChangedPanel.jsx";
 import { SCHEMA_VERSION, clearAll, fingerprint, listSessions, loadSession, persistIfEnabled, restoreSession } from "./lib/persistence/store.js";
@@ -72,6 +73,8 @@ function formatDurationMs(value) {
 export default function App() {
   const [chatText, setChatText] = useState("");
   const [selectedTrapChatId, setSelectedTrapChatId] = useState(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoTaskId, setDemoTaskId] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
   const [taskStatuses, setTaskStatuses] = useState({});
   const [reviewDecisions, setReviewDecisions] = useState({});
@@ -107,6 +110,11 @@ export default function App() {
   const sourceNavigationRef = useRef(0);
   const legacyCleanupAttemptedRef = useRef(false);
   const skipRestoreFingerprintRef = useRef(null);
+
+  useEffect(() => {
+    if (!demoMode || !demoTaskId) return;
+    document.getElementById("demo-first-task")?.focus();
+  }, [demoMode, demoTaskId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +207,7 @@ export default function App() {
   const highAlerts = priorityView.counts.High;
   const missedMentions = analysis.mentions.length;
   const lineCount = analysis.lineCount;
+  const demoTask = demoTaskId ? analysis.actions.find((task) => task.id === demoTaskId) : null;
 
   const analyticsMeters = [
     {
@@ -281,6 +290,8 @@ export default function App() {
     setSourceSnapshot(null);
     setSelectedSource(null);
     setSelectedTrapChatId(null);
+    setDemoMode(false);
+    setDemoTaskId(null);
     setAnalysis(createEmptyAnalysis());
     setHasAnalysis(false);
     setTaskStatuses({});
@@ -306,15 +317,42 @@ export default function App() {
     resetAnalysis();
   }
 
-  function loadSampleChat(language) {
-    handleTextChange(SAMPLE_CHATS[language]);
-    setFileStatus({ type: "success", message: `${language === "hinglish" ? "Hinglish" : "English"} sample loaded locally. Choose an analysis mode when ready.` });
+  function loadSampleChat(language, analyze = false) {
+    const text = SAMPLE_CHATS[language];
+    handleTextChange(text);
+    setFileStatus({
+      type: "success",
+      message: analyze
+        ? `${language === "hinglish" ? "Hinglish" : "English"} sample loaded locally. Running rules-only analysis.`
+        : `${language === "hinglish" ? "Hinglish" : "English"} sample loaded locally. Choose an analysis mode when ready.`,
+    });
+    if (analyze) {
+      setUseLocalModel(false);
+      runAnalysis({ source: text, forceFresh: true, mode: "rules-only" });
+    }
   }
 
-  function loadTrapChat(name) {
-    handleTextChange(TRAP_CHATS[name]);
+  function loadTrapChat(name, analyze = false) {
+    const text = TRAP_CHATS[name];
+    handleTextChange(text);
     setSelectedTrapChatId(name);
-    setFileStatus({ type: "success", message: "Trap chat loaded locally. Choose an analysis mode when ready." });
+    setFileStatus({
+      type: "success",
+      message: analyze
+        ? "Trap chat loaded locally. Running rules-only analysis."
+        : "Trap chat loaded locally. Choose an analysis mode when ready.",
+    });
+    if (analyze) {
+      setUseLocalModel(false);
+      runAnalysis({ source: text, forceFresh: true, mode: "rules-only" });
+    }
+  }
+
+  function runDemo() {
+    setUseLocalModel(false);
+    handleTextChange(DEMO_CHAT);
+    setDemoMode(true);
+    runAnalysis({ source: DEMO_CHAT, forceFresh: true, mode: "rules-only", focusFirstTask: true });
   }
 
   function handleLocalFile(file) {
@@ -389,7 +427,7 @@ export default function App() {
 
   async function runAnalysis(options = {}) {
     const forceFresh = options?.forceFresh === true;
-    const source = chatText;
+    const source = typeof options?.source === "string" ? options.source : chatText;
     if (!source.trim()) {
       setAnalysisStatus({ type: "error", message: "Paste or upload a chat log before running analysis." });
       return;
@@ -403,8 +441,10 @@ export default function App() {
     const runId = ++activeRunRef.current;
     const startedAt = Date.now();
     const modelWasReady = modelState.state === "ready";
-    const selectedMode = selectAnalysisMode(useLocalModel, (message) => window.confirm(message));
-    const modelConsentDeclined = useLocalModel && selectedMode === "rules-only";
+    const selectedMode = options?.mode === "rules-only"
+      ? "rules-only"
+      : selectAnalysisMode(useLocalModel, (message) => window.confirm(message));
+    const modelConsentDeclined = options?.mode !== "rules-only" && useLocalModel && selectedMode === "rules-only";
     let usedCachedResult = false;
 
     if (modelConsentDeclined) {
@@ -453,6 +493,17 @@ export default function App() {
       const segmentCount = inferenceCompleted && Number.isFinite(result.sourceChunks) ? result.sourceChunks : 0;
       setAnalysis(result);
       setHasAnalysis(true);
+      if (options?.focusFirstTask) {
+        const firstTask = result.actions[0];
+        if (firstTask) {
+          setDemoTaskId(firstTask.id);
+          setSelectedSource({
+            reference: firstTask.sourceEvidence || null,
+            referenceStatus: firstTask.sourceReferenceStatus || "unverified",
+            navigationId: ++sourceNavigationRef.current,
+          });
+        }
+      }
       setTaskStatuses({});
       setReviewDecisions({});
       if (persistenceEnabled) {
@@ -747,6 +798,12 @@ export default function App() {
                 <div><div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-400/10 text-indigo-200 ring-1 ring-indigo-300/20"><MessageSquareText size={17} aria-hidden="true" /></div><h2 className="font-bold text-white">Conversation input</h2></div><p className="mt-2 text-sm leading-6 text-slate-400">Paste raw chat text or import a local text log, or try a short built-in example.</p><p className="mt-2 text-xs leading-5 text-cyan-200/80">WhatsApp workflow: export a chat without media, then upload the exported .txt file here. Only analyze conversations you are authorized to use.</p><p className="mt-2 text-xs leading-5 text-slate-500">Chat text and source snapshots stay in memory by default. Optional saving stores analysis and review data, not the raw chat; unstructured text is treated as one source message when message headers cannot be recognized.</p></div>
                 <Badge tone="green"><LockKeyhole size={12} /> Local</Badge>
               </div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button type="button" onClick={runDemo} disabled={isAnalyzing} className="inline-flex items-center gap-2 rounded-xl border border-cyan-200/30 bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 px-4 py-3 text-sm font-extrabold text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.12)] hover:border-cyan-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-45">
+                  <Sparkles size={16} aria-hidden="true" /> Run 60-second demo
+                </button>
+                {demoMode && <button type="button" onClick={() => handleTextChange("")} disabled={isAnalyzing} className="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm font-bold text-slate-200 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-45">Reset demo</button>}
+              </div>
               <div onDragEnter={(event) => { event.preventDefault(); setIsDragging(true); }} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }} onDrop={handleDrop} className={cx("mb-4 rounded-xl border-2 border-dashed p-4 transition-colors", isDragging ? "border-cyan-300 bg-cyan-300/10 ring-4 ring-cyan-300/10" : "border-slate-700 bg-slate-950/45 hover:border-cyan-300/50 hover:bg-slate-950/65")} role="region" aria-label="Local chat log file upload">
                 <input ref={fileInputRef} type="file" accept=".txt,.log,text/plain" className="sr-only" aria-label="Choose a local .txt or .log chat file" disabled={isAnalyzing} onChange={(event) => { handleLocalFile(event.target.files?.[0]); event.target.value = ""; }} />
                 <div className="flex flex-col items-center justify-center gap-2 text-center sm:flex-row sm:text-left"><span className={cx("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", isDragging ? "bg-cyan-300 text-slate-950" : "bg-slate-900 text-cyan-200 ring-1 ring-slate-700")}><Upload size={21} aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-200">Drop a .txt or .log file here</p><p className="mt-1 text-xs leading-5 text-slate-400">Read locally in the browser · 60,000-character limit · 5 MB maximum file size</p>{loadedFileName && <p className="mt-1 truncate text-xs font-semibold text-emerald-300">Loaded: {loadedFileName}</p>}</div><button type="button" onClick={() => fileInputRef.current?.click()} disabled={isAnalyzing} className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-bold text-slate-200 hover:border-cyan-300/50 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:cursor-not-allowed disabled:opacity-40"><FileText size={14} aria-hidden="true" /> Browse files</button></div>
@@ -754,14 +811,20 @@ export default function App() {
               </div>
               <div className="mb-3 flex flex-wrap gap-2" aria-label="Sample conversations">
                 <button type="button" onClick={() => loadSampleChat("english")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try English sample</button>
+                <button type="button" onClick={() => loadSampleChat("english", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load English and analyze</button>
                 <button type="button" onClick={() => loadSampleChat("hinglish")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Try Hinglish sample</button>
+                <button type="button" onClick={() => loadSampleChat("hinglish", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load Hinglish and analyze</button>
               </div>
               <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Trap chats">
                 <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">Trap chats</span>
                 <button type="button" aria-label="Load vague owner trap chat" onClick={() => loadTrapChat("vague-someone")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Vague owner</button>
+                <button type="button" aria-label="Load and analyze vague owner trap chat" onClick={() => loadTrapChat("vague-someone", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load and analyze</button>
                 <button type="button" aria-label="Load ambiguous handoff trap chat" onClick={() => loadTrapChat("ambiguous-handoff")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Unclear handoff</button>
+                <button type="button" aria-label="Load and analyze unclear handoff trap chat" onClick={() => loadTrapChat("ambiguous-handoff", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load and analyze</button>
                 <button type="button" aria-label="Load kal dekhenge trap chat" onClick={() => loadTrapChat("kal-dekhenge")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Tomorrow maybe</button>
+                <button type="button" aria-label="Load and analyze tomorrow maybe trap chat" onClick={() => loadTrapChat("kal-dekhenge", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load and analyze</button>
                 <button type="button" aria-label="Load same first name trap chat" onClick={() => loadTrapChat("same-first-name")} disabled={isAnalyzing} className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-300/50 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Same first name</button>
+                <button type="button" aria-label="Load and analyze same first name trap chat" onClick={() => loadTrapChat("same-first-name", true)} disabled={isAnalyzing} className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-2 text-xs font-semibold text-cyan-100 hover:border-cyan-300/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 disabled:opacity-40">Load and analyze</button>
               </div>
               <section className="mb-4 rounded-xl border border-slate-700/60 bg-slate-950/35 p-3" aria-label="On-device persistence controls">
                 <label htmlFor="save-analysis-locally" className="flex cursor-pointer items-start gap-3">
@@ -804,7 +867,15 @@ export default function App() {
                   <div className="mt-4 flex gap-1 overflow-x-auto" role="tablist" aria-label="Analysis views">{tabs.map((tab) => { const Icon = tab.icon; const selected = activeTab === tab.id; return <button key={tab.id} id={`tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`panel-${tab.id}`} onClick={() => setActiveTab(tab.id)} className={cx("inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300 sm:px-4", selected ? "border-cyan-300 text-cyan-100" : "border-transparent text-slate-400 hover:border-slate-500 hover:text-slate-200")}><Icon size={15} aria-hidden="true" />{tab.label}<span className={cx("rounded-md px-1.5 py-0.5 text-[11px]", selected ? "bg-cyan-300/10 text-cyan-100" : "bg-slate-800 text-slate-400")}>{hasAnalysis ? tab.count : "—"}</span></button>; })}</div>
                 </div>
                 <div className="p-4 sm:p-5">
-                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your catch-up brief will appear here" description="Paste or upload a conversation and run rules-only extraction by default. You can explicitly opt in to the on-device model when you want additional candidate suggestions." /> : <><WhatChangedPanel diff={changeDiff} /><CatchUpBrief actions={analysis.actions} reviewQueue={analysis.reviewQueue} snapshot={sourceSnapshot} statuses={taskStatuses} me={briefMe} onChangeMe={changeBriefIdentity} asOf={briefAsOf} onChangeAsOf={setBriefAsOf} onShowSource={showSourceInInput} /><div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
+                  {activeTab === "summary" && <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" className="space-y-4">{!hasAnalysis ? <EmptyState icon={Sparkles} title="Your catch-up brief will appear here" description="Paste or upload a conversation and run rules-only extraction by default. You can explicitly opt in to the on-device model when you want additional candidate suggestions." /> : <><WhatChangedPanel diff={changeDiff} /><CatchUpBrief actions={analysis.actions} reviewQueue={analysis.reviewQueue} snapshot={sourceSnapshot} statuses={taskStatuses} me={briefMe} onChangeMe={changeBriefIdentity} asOf={briefAsOf} onChangeAsOf={setBriefAsOf} onShowSource={showSourceInInput} />
+                    {demoMode && demoTask && <section className="space-y-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.04] p-4" aria-label="Demo first task">
+                      <h3 className="text-sm font-bold text-cyan-100">First task · source and reasoning</h3>
+                      <div id="demo-first-task" tabIndex={-1} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300">
+                        <TaskCard task={demoTask} status={getTaskStatus(taskStatuses, demoTask.id)} onShowSource={showSourceInInput} onChangeStatus={changeTaskStatus} whyInitiallyExpanded />
+                      </div>
+                      <TaskSourcePane snapshot={sourceSnapshot} selection={selectedSource} />
+                    </section>}
+                    <div className="rounded-2xl border border-indigo-300/20 bg-gradient-to-br from-indigo-500/[0.13] via-slate-900/70 to-cyan-400/[0.06] p-5 shadow-[0_18px_46px_rgba(2,6,23,0.24)]"><div className="mb-3 flex flex-wrap items-center gap-2 text-cyan-100"><Sparkles size={17} aria-hidden="true" /><h3 className="text-sm font-bold">Deterministic catch-up summary</h3><Badge tone="blue">{analysis.modelId || MODEL_ID}</Badge>{analysis.modelExecution?.status === "completed" ? <Badge tone="green">Qwen inference completed · {analysis.modelExecution.structuredResponsesValidated} validated response{analysis.modelExecution.structuredResponsesValidated === 1 ? "" : "s"}</Badge> : <Badge tone="amber">Rules-only · Qwen not run</Badge>}</div><p className="mb-3 text-xs leading-5 text-slate-400">This summary is built from deterministic source checks. When shown above, Qwen's structured findings were also generated locally and merged into the review candidates; source-reference validation remains a separate check.</p><ul className="space-y-3">{analysis.summary.map((item, index) => <li key={`${index}-${item}`} className="flex gap-2.5 text-sm leading-6 text-slate-200"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" /><span>{item}</span></li>)}</ul>{analysis.summary.length === 0 && <p className="text-sm text-slate-400">No locally extracted summary items were found.</p>}{analysis.summaryEvidence?.length > 0 && <p className="mt-3 border-t border-slate-700/50 pt-3 text-xs leading-5 text-slate-400">{analysis.summaryEvidence.length} finding references point to exact source spans. This validates reference integrity only; semantic support remains unverified.</p>}</div>
                     <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><CalendarClock size={16} className="text-indigo-300" /><p className="text-xs font-bold">Deadlines and timing</p></div>{analysis.deadlines.length ? <ul className="space-y-3">{analysis.deadlines.slice(0, 6).map((item) => <li key={item.id} className="text-xs leading-5 text-slate-300"><Badge tone={urgencyTone(item.urgency)}>{item.dates.join(", ") || "Time reference"}</Badge><p className="mt-1.5">{item.text}</p><p className="mt-1 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No deadline signals returned.</p>}</div>
                       <div className="rounded-2xl border border-slate-700/70 bg-slate-900/45 p-4 shadow-[0_12px_32px_rgba(2,6,23,0.18)]"><div className="mb-2 flex items-center gap-2 text-slate-200"><Users size={16} className="text-violet-300" /><p className="text-xs font-bold">Direct mentions</p></div>{analysis.mentions.length ? <ul className="space-y-2">{analysis.mentions.slice(0, 8).map((item, index) => <li key={`${item.handle}-${index}`} className="text-xs leading-5 text-slate-300"><span className="font-bold text-violet-200">@{item.handle}</span><p className="mt-0.5">{item.line}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.sourceReferenceStatus === "valid" ? "Source reference valid · interpretation unverified" : "Unverified · no exact source reference"}</p></li>)}</ul> : <p className="text-xs leading-5 text-slate-500">No direct mentions returned.</p>}</div></div>
                     <p className="flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2.5 text-xs leading-5 text-amber-100/90"><AlertCircle size={15} className="mt-0.5 shrink-0" />AI output can contain errors. Verify important dates, owners, decisions, and urgency classifications against the original conversation.</p></>}</div>}

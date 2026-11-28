@@ -11,6 +11,7 @@ const OWNER_BASIS_LABELS = Object.freeze({
   "unassigned-request": "Unassigned request",
   unknown: "Unknown",
   ambiguous: "Ambiguous",
+  disputed: "Disputed",
 });
 
 function messageReference(messages, messageIndex) {
@@ -24,8 +25,8 @@ function messageReference(messages, messageIndex) {
   };
 }
 
-export function TaskWhyPanel({ task, messages, speakers, reviewStatus, onShowSource }) {
-  const [expanded, setExpanded] = useState(false);
+export function TaskWhyPanel({ task, messages, speakers, reviewStatus, onShowSource, initiallyExpanded = false }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const panelId = useId();
   const context = useContext(TaskWhyDataContext);
   const sourceMessages = messages ?? context.messages;
