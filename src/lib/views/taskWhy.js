@@ -88,6 +88,12 @@ function speakerAt(messages, messageIndex) {
 function buildOwnerBasis(task, speakers) {
   const owner = typeof task?.owner === "string" ? task.owner.trim() : "";
   if (!owner) {
+    if (task?.ownerBasis === "disputed") {
+      return {
+        status: "disputed",
+        reason: "More than one person may own this. Not guessing.",
+      };
+    }
     if (task?.ownerBasis === "ambiguous") {
       return {
         status: "ambiguous",

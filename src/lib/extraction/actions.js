@@ -317,8 +317,8 @@ export function extractActions(text, options = {}) {
     if (!speaker || !(matchesAcknowledgement(body) || (twoPersonChat && BARE_AFFIRMATION.test(body)))) continue;
     // An acknowledgement that directly follows an unowned request from someone else answers THAT
     // request, even if the speaker already owns an older task.
-    const justAsked = actions.filter((action) =>
-      isEligibleUnownedClaim(records, action, record, speaker, options));
+    const justAsked = actions.filter((action) => canBeClaimedBySpeaker(action, speaker)
+      && isEligibleUnownedClaim(records, action, record, speaker, options));
     let possibleMatches = justAsked.length === 1
       ? (Object.assign(justAsked[0], {
         owner: speaker,
@@ -335,9 +335,8 @@ export function extractActions(text, options = {}) {
       // participant explicitly acknowledges it. Ambiguous cases stay unassigned.
       // Only RECENT requests (last 3 messages) from an identifiable, different person qualify:
       // an acknowledgement far from the request, or from an unknown requester, proves nothing.
-      const unassigned = actions.filter((action) =>
-        isEligibleUnownedClaim(records, action, record, speaker, options)
-      );
+      const unassigned = actions.filter((action) => canBeClaimedBySpeaker(action, speaker)
+        && isEligibleUnownedClaim(records, action, record, speaker, options));
       if (unassigned.length === 1) {
         unassigned[0].owner = speaker;
         unassigned[0].ownerBasis = null;
@@ -357,11 +356,55 @@ export function extractActions(text, options = {}) {
 
   const uniqueActions = uniqueBy(actions, (item) => `${item.text.toLowerCase()}|${(item.owner || "").toLowerCase()}`);
   applyTaskLifecycle(uniqueActions, records, options, speakers);
+  applyCompetingCommitmentDisputes(uniqueActions, records, options, speakers);
   return {
     actions: uniqueActions,
     decisions: uniqueBy(decisions, (item) => item.toLowerCase()),
     decisionEvidence: uniqueBy(decisionEvidence, (item) => item.text.toLowerCase()),
   };
+}
+
+function applyCompetingCommitmentDisputes(actions, records, options, speakers) {
+  for (let index = 0; index < records.length - 1; index += 1) {
+    const claimRecord = records[index];
+    const { speaker: claimant, body: claimText } = recordMeta(claimRecord, options);
+    if (!claimant || !/^\s*(?:(?:sure|yes|yep|yeah|absolutely|of\s+course)[,!\s]+)?(?:i['’]?ll\s+(?:do|take)\s+it|i\s+am\s+on\s+it|on\s+it|will\s+do)[.! ]*\s*$/iu.test(claimText)) continue;
+
+    const responseRecord = records[index + 1];
+    const { speaker: taskOwner, body: responseText } = recordMeta(responseRecord, options);
+    const acknowledgedName = extractNamedFollowupTarget(responseText);
+    if (!taskOwner || !acknowledgedName
+      || !ownerMatchesSpeaker(acknowledgedName, claimant)
+      || ownerMatchesMultipleSpeakers(acknowledgedName, speakers)) continue;
+
+    const ownedTasks = actions.filter((action) => action.sourceSpan.startOffset < claimRecord.startOffset
+      && action.owner
+      && ownerMatchesSpeaker(action.owner, taskOwner)
+      && !ownerMatchesSpeaker(action.owner, claimant)
+      && !ownerMatchesMultipleSpeakers(action.owner, speakers)
+      && !["completed", "cancelled"].includes(action.lifecycleStatus));
+    if (ownedTasks.length !== 1) continue;
+
+    const [action] = ownedTasks;
+    const previousOwner = action.owner;
+    action.owner = null;
+    action.ownerBasis = "disputed";
+    action.ownerCandidateName = previousOwner;
+    action.ownerSource = null;
+    if (!["completed", "cancelled"].includes(action.lifecycleStatus)) action.lifecycleStatus = "open";
+    const event = {
+      type: "ownership-disputed",
+      actor: claimant,
+      text: claimText,
+      sourceSpan: sourceSpan(claimRecord),
+      messageTimestamp: claimRecord.meta?.timestamp?.raw || null,
+      messageDate: claimRecord.meta?.timestamp?.date || null,
+      previousOwner,
+      newOwner: null,
+    };
+    action.lifecycleEvents.push(event);
+    addSupportingDetail(action, claimRecord, claimText, "lifecycle:ownership-disputed");
+  }
 }
 
 function isComplaintRepairResponse(body) {
@@ -390,7 +433,8 @@ function dueWithinOwnSentence(body, candidateText, messageDue) {
 const NO_DELIVERABLE = new Set(["evening", "morning", "afternoon", "instead", "night", "ho", "jayega", "jaega", "bhej", "bhejna", "dunga", "dungi", "kar", "karna", "deta", "deti", "karunga", "karungi", "denge", "hu", "hoon", "with", "you", "ready", "done", "have", "ma'am", "sir"]);
 
 function findClaimableRequest(actions, action, record, records, speaker, options, { bare = false } = {}) {
-  const open = actions.filter((earlier) => isEligibleUnownedClaim(records, earlier, record, speaker, options));
+  const open = actions.filter((earlier) => canBeClaimedBySpeaker(earlier, speaker)
+    && isEligibleUnownedClaim(records, earlier, record, speaker, options));
   const byContent = open.filter((earlier) => relationScore(earlier.text, action.text) >= CLAIM_CONTENT_THRESHOLD);
   if (byContent.length === 1) return byContent[0];
   if (byContent.length > 1) return null;
@@ -400,6 +444,12 @@ function findClaimableRequest(actions, action, record, records, speaker, options
   if (bare) return open[0];
   const verb = action.text.trim().split(/\s+/u)[0];
   return /\b(?:need|chahiye)\b/iu.test(open[0].sourceText) || sameVerbFamily(verb, open[0].text) ? open[0] : null;
+}
+
+function canBeClaimedBySpeaker(action, speaker) {
+  if (action.ownerBasis === "disputed") return false;
+  if (action.ownerBasis !== "ambiguous") return true;
+  return Boolean(action.ownerCandidateName && ownerMatchesSpeaker(action.ownerCandidateName, speaker));
 }
 // The requester must be identifiable AND different from the respondent; unknown is not "different".
 // A vague "we need X" becomes a confirmed task once someone explicitly accepts it.
