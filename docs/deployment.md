@@ -13,6 +13,10 @@ Unread Radar AI is currently a static React/Vite application. Its local inferenc
 
 Do not add a dummy backend, environment secrets, a hosted chat-completion provider, or a second inference path just to satisfy a generic full-stack project layout. If a hosting workflow refuses to deploy a Vite static frontend without those changes, stop and inspect the platform requirement before modifying the architecture.
 
+## Lazy model bundle
+
+The roughly 6 MB WebLLM runtime bundle is lazy-loaded by `loadLocalModel()` through `import("@mlc-ai/web-llm")`. It is not part of the initial page request and is fetched only after the user opts in and starts an on-device model analysis. Rules-only analysis does not request that bundle. The Vite build warning limit is set above this optional chunk's current size; this does not change how or when it loads.
+
 ## Browser requirements
 
 The default rules-only path requires neither WebGPU nor a model download. The optional Qwen model download requires network access only after the user explicitly enables on-device AI and starts an analysis. Actual inference requires a compatible browser and working WebGPU support; performance and available GPU memory vary by device. The model may be cached by the browser after first use. If the user opts in but adapter/device initialization is unavailable, the app uses its clearly labelled rules-only fallback, which is not equivalent to Qwen inference.
@@ -23,6 +27,17 @@ The Vite development and preview servers and `vercel.json` currently configure t
 - `Cross-Origin-Embedder-Policy: require-corp`
 
 Preserve them on hosting where supported. Do not assume that the platform applies them automatically. Also do not treat the headers alone as proof of compatibility: the final hosted test below is decisive.
+
+## Import into Vercel
+
+1. Sign in to Vercel and choose **Add New → Project**.
+2. Under **Import Git Repository**, connect GitHub if prompted and select `anandrajput0210/unread-radar-ai`.
+3. Set **Framework Preset** to **Vite** and **Root Directory** to `./`.
+4. Confirm **Install Command** is `npm ci`, **Build Command** is `npm run build`, and **Output Directory** is `dist`.
+5. Leave environment variables empty; this static app has no required environment variables.
+6. Choose **Deploy**. The repository's `vercel.json` supplies the COOP and COEP response headers.
+
+On a standard static host that does not read `vercel.json`, that file is inert configuration; serving the contents of `dist/` does not apply or depend on those headers. The development and preview servers add their own configured headers, so test the host's actual response separately.
 
 ## Required hosted smoke test
 

@@ -19,5 +19,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // The optional WebLLM runtime is lazy-loaded; its current deferred chunk is about 6 MB.
+    chunkSizeWarningLimit: 7000,
   },
 });
