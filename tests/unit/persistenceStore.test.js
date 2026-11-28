@@ -13,6 +13,7 @@ import {
 import { analyzeTextWithRules } from "../../src/lib/ai/localAiEngine.js";
 import { createSourceSnapshot } from "../../src/lib/import/sourceSnapshot.js";
 import { SAMPLE_CHATS } from "../../src/lib/sampleChats.js";
+import { TRAP_CHATS } from "../../src/lib/trapChats.js";
 
 function fakeStorage({ onSetItem } = {}) {
   const values = new Map();
@@ -127,6 +128,37 @@ test("a real rules-only analysis with source metadata remains restorable", async
 
   assert.equal(saveSession(storage, saved).saved, true);
   assert.equal(loadSession(storage, saved.fingerprint).analysis.actions[0].text, analysis.actions[0].text);
+});
+
+test("ambiguous owner candidate name survives validated persistence", async () => {
+  const text = TRAP_CHATS["same-first-name"];
+  const snapshot = await createSourceSnapshot(text);
+  const analysis = await analyzeTextWithRules(text, { sourceSnapshot: snapshot });
+  const sourceMessageFingerprints = snapshot.messages.map((message) => fingerprint(JSON.stringify([
+    message.authorRaw || "",
+    message.timestampRaw || "",
+    (message.rawText || "").replace(/(?:\r\n|\r|\n)+$/u, ""),
+  ])));
+  const saved = record(text, {
+    fingerprint: fingerprint(text),
+    analysis,
+    sourceSnapshotId: snapshot.snapshotId,
+    sourceMessageFingerprints,
+    sourceMessageRanges: snapshot.messages.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })),
+  });
+  const storage = fakeStorage();
+
+  assert.equal(saveSession(storage, saved).saved, true);
+  const restored = loadSession(storage, saved.fingerprint);
+  const task = restored.analysis.actions.find((item) => item.text.includes("draft invoice"));
+  assert.equal(task?.ownerCandidateName, "Ravi");
+  assert.equal(task?.owner, null);
+
+  const invalidStorage = fakeStorage();
+  const invalidAnalysis = JSON.parse(JSON.stringify(analysis));
+  const invalidTask = invalidAnalysis.actions.find((item) => item.text.includes("draft invoice"));
+  invalidTask.ownerCandidateName = 7;
+  assert.equal(saveSession(invalidStorage, { ...saved, analysis: invalidAnalysis }).reason, "invalid-record");
 });
 
 test("a real review candidate with validated source metadata remains restorable", async () => {

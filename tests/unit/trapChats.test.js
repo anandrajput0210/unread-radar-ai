@@ -61,6 +61,7 @@ test("same-first-name does not guess which Ravi was addressed", async () => {
   assert.ok(task, "the addressed task remains visible");
   assert.equal(task.owner, null);
   assert.equal(task.ownerBasis, "ambiguous");
+  assert.equal(task.ownerCandidateName, "Ravi");
   assert.equal(task.sourceReferenceStatus, "valid");
   assert.notEqual(task.owner, "Ravi Mehta");
   assert.notEqual(task.owner, "Ravi Shah");
@@ -139,4 +140,14 @@ test("English and Hinglish samples keep their unique named owners", async () => 
 
   assert.equal(taskContaining(english.findings, "update the executive deck")?.owner, "Maria");
   assert.equal(taskContaining(hinglish.findings, "GST invoice")?.owner, "Vikram");
+});
+
+test("an exact participant name wins over a longer name sharing its token", async () => {
+  const { findings } = await analyze([
+    "Asha Verma: Ravi, please update the deck.",
+    "Ravi: I saw the latest draft.",
+    "Ravi S: The invoice is in the shared folder.",
+  ].join("\n"));
+
+  assert.equal(taskContaining(findings, "update the deck")?.owner, "Ravi");
 });

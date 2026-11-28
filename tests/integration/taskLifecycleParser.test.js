@@ -134,6 +134,31 @@ test("recognizes named take-over language as a reassignment", () => {
   assert.equal(task.lifecycleStatus, "reassigned");
 });
 
+test("a first-name reassignment stays ambiguous when two speakers share the name", () => {
+  const input = [
+    android("2:01 pm", "Asha", "Ravi, please update the invoice."),
+    android("4:01 pm", "Asha", "Ravi will take over the invoice."),
+    android("4:02 pm", "Ravi K", "The invoice is in the shared folder."),
+    android("4:03 pm", "Ravi S", "I saw the invoice yesterday."),
+  ].join("\n");
+  const task = extractActions(input).actions.find((item) => item.text.includes("update the invoice"));
+
+  assert.ok(task, "the original invoice task remains present");
+  assert.equal(task.owner, null);
+});
+
+test("a first-name bullet-style assignment stays ambiguous when two speakers share the name", () => {
+  const input = [
+    android("2:01 pm", "Asha", "Ravi: update the deck."),
+    android("2:02 pm", "Ravi K", "The deck is in the shared folder."),
+    android("2:03 pm", "Ravi S", "I saw the draft yesterday."),
+  ].join("\n");
+  const task = extractActions(input).actions.find((item) => item.text.toLowerCase().includes("update the deck"));
+
+  assert.ok(task, "the deck task remains present");
+  assert.equal(task.owner, null);
+});
+
 test("tracks acknowledgement by the new owner after a reassignment", () => {
   const input = [
     android("2:01 pm", "Alex", "Neha, please send the quotation by Friday."),

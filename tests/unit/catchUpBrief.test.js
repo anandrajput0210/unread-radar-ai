@@ -96,17 +96,61 @@ test("ambiguous owner name goes to 'might be you', not 'waiting on you'", () => 
   assert.equal(b.groups.mightBeYou.length, 1);
 });
 
-test("owner already marked ambiguous stays in the ambiguous group without assigning a speaker", () => {
+test("ambiguous owner candidate is not shown to an unrelated selected identity", () => {
   const b = buildCatchUpBrief([
-    task({ owner: null, ownerBasis: "ambiguous", classification: "assigned_task" }),
+    task({
+      owner: null,
+      ownerBasis: "ambiguous",
+      ownerCandidateName: "Ravi",
+      classification: "assigned_task",
+    }),
   ], {
-    me: "Ravi Mehta",
+    me: "Priya",
+    speakers: ["Priya", "Ravi K", "Ravi S"],
+  });
+
+  assert.equal(b.groups.assignedToYou.length, 0);
+  assert.equal(b.groups.mightBeYou.length, 0);
+  assert.deepEqual(ids(b.groups.noOwner), ["t1"]);
+});
+
+test("ambiguous owner candidate may be the selected identity but remains ownerless", () => {
+  const b = buildCatchUpBrief([
+    task({
+      owner: null,
+      ownerBasis: "ambiguous",
+      ownerCandidateName: "Ravi",
+      classification: "assigned_task",
+    }),
+  ], {
+    me: "Ravi Shah",
     speakers: ["Ravi Mehta", "Ravi Shah"],
   });
 
   assert.equal(b.groups.assignedToYou.length, 0);
+  assert.equal(b.groups.assignedToOthers.length, 0);
   assert.equal(b.groups.mightBeYou.length, 1);
   assert.equal(b.groups.mightBeYou[0].owner, null);
+});
+
+test("ambiguous owner without a selected identity is not assigned or shown as possibly yours", () => {
+  const b = buildCatchUpBrief([
+    task({
+      owner: null,
+      ownerBasis: "ambiguous",
+      ownerCandidateName: "Ravi",
+      classification: "assigned_task",
+    }),
+  ], {
+    me: null,
+    speakers: ["Ravi Mehta", "Ravi Shah"],
+  });
+
+  assert.equal(b.needsIdentity, true);
+  assert.equal(b.groups.mightBeYou.length, 0);
+  assert.equal(b.groups.assigned.length, 0);
+  assert.equal(b.groups.assignedToYou.length, 0);
+  assert.deepEqual(ids(b.groups.noOwner), ["t1"]);
 });
 
 test("completed, cancelled and manually closed tasks leave the waiting groups", () => {
