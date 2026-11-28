@@ -42,6 +42,18 @@ test("reports an owner change with both old and new values", () => {
   assert.equal(diff.unchanged, 0);
 });
 
+test("reports a newly ambiguous owner as a change to unknown", () => {
+  const previous = session([task({ owner: "Ravi" })]);
+  const current = session([task({ owner: null, ownerBasis: "ambiguous" })]);
+
+  const diff = diffSessions(previous, current);
+
+  assert.equal(diff.changedOwner.length, 1);
+  assert.equal(diff.changedOwner[0].oldValue, "Ravi");
+  assert.equal(diff.changedOwner[0].newValue, null);
+  assert.equal(diff.unchanged, 0);
+});
+
 test("reports a task resolved only when the new analysis has a completion or cancellation event", () => {
   const previous = session([task()]);
   const notResolved = diffSessions(previous, session([

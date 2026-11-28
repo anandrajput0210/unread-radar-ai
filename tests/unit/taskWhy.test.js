@@ -226,6 +226,7 @@ test("trap-chat abstention explanations are exact and do not name speakers", asy
       ? context.analysis.actions.find((item) => item.text.includes("draft invoice"))
       : context.analysis.actions.find((item) => item.text.includes("invoice mismatch"))
         ?? context.analysis.actions[0];
+    if (name === "same-first-name") assert.equal(task?.owner, null);
     const result = buildTaskWhy(task ?? {
       text: "No extracted task",
       owner: null,

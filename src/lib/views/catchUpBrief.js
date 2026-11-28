@@ -117,6 +117,10 @@ export function buildCatchUpBrief(actions, { me = null, asOf = null, statuses = 
       groups.needsReview.push(task);
       continue;
     }
+    if (task.ownerBasis === "ambiguous") {
+      groups.mightBeYou.push(task);
+      continue;
+    }
     if (!hasGroundedOwner(task)) { groups.noOwner.push(task); continue; }
     if (!hasMe) { groups.assigned.push(task); continue; }
     const match = ownerMatch(task.owner, me, speakers);

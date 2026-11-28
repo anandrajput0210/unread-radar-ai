@@ -123,6 +123,7 @@ test("trap-chat panels show exact abstention reasons without naming speakers", a
       ? analysis.actions.find((item) => item.text.includes("draft invoice"))
       : analysis.actions.find((item) => item.text.includes("invoice mismatch"))
         ?? analysis.actions[0];
+    if (name === "same-first-name") assert.equal(task?.owner, null);
     const markup = render(task ?? {
       id: `${name}-unknown`,
       text: "No extracted task",

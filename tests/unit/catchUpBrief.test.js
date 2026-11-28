@@ -96,6 +96,19 @@ test("ambiguous owner name goes to 'might be you', not 'waiting on you'", () => 
   assert.equal(b.groups.mightBeYou.length, 1);
 });
 
+test("owner already marked ambiguous stays in the ambiguous group without assigning a speaker", () => {
+  const b = buildCatchUpBrief([
+    task({ owner: null, ownerBasis: "ambiguous", classification: "assigned_task" }),
+  ], {
+    me: "Ravi Mehta",
+    speakers: ["Ravi Mehta", "Ravi Shah"],
+  });
+
+  assert.equal(b.groups.assignedToYou.length, 0);
+  assert.equal(b.groups.mightBeYou.length, 1);
+  assert.equal(b.groups.mightBeYou[0].owner, null);
+});
+
 test("completed, cancelled and manually closed tasks leave the waiting groups", () => {
   const speakers = ["Me"];
   const b = buildCatchUpBrief([
