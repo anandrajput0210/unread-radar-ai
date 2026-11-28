@@ -1,13 +1,17 @@
 import { recordMeta } from "./records.js";
+import { normalizeParticipantName, resolveParticipantIdentity } from "../identity.js";
+import { uniqueSpeakerNames } from "./matching.js";
 
 // One recency policy shared by acknowledgement, commitment and progress claims.
 export const CLAIM_WINDOW = 3;
 export const CLAIM_CONTENT_THRESHOLD = 0.3;
 
-export function sameSpeaker(left, right) {
-  // Unknown attribution never proves that two messages came from different people.
+export function sameSpeaker(left, right, speakers = []) {
   if (!left || !right) return true;
-  return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
+  const leftIdentity = resolveParticipantIdentity(left, speakers);
+  const rightIdentity = resolveParticipantIdentity(right, speakers);
+  if (leftIdentity.status !== "resolved" || rightIdentity.status !== "resolved") return true;
+  return normalizeParticipantName(leftIdentity.participant) === normalizeParticipantName(rightIdentity.participant);
 }
 
 export function speakerForAction(records, action, options = {}) {
@@ -17,7 +21,8 @@ export function speakerForAction(records, action, options = {}) {
 
 export function isKnownOtherRequester(records, action, speaker, options = {}) {
   const requester = speakerForAction(records, action, options);
-  return Boolean(requester && speaker) && !sameSpeaker(requester, speaker);
+  const speakers = uniqueSpeakerNames(records.map((record) => recordMeta(record, options).speaker));
+  return Boolean(requester && speaker) && !sameSpeaker(requester, speaker, speakers);
 }
 
 export function isWithinClaimWindow(records, action, record) {

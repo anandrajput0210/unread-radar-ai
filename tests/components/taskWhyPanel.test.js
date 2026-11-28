@@ -86,6 +86,44 @@ test("the disputed-owner explanation renders in an initially expanded Why panel"
   assert.doesNotMatch(markup.match(/Owner basis[^<]*/u)?.[0] || "", /\b(?:Neha|Ben)\b/u);
 });
 
+test("the Why timeline renders the source for a deduplicated repeated request", () => {
+  const quote = "Asha: Neha, please send the vendor quotation.";
+  const markup = render({
+    id: "repeated-task",
+    text: "send the vendor quotation",
+    owner: "Neha",
+    classification: "assigned_task",
+    outcome: "confirmed",
+    sourceEvidence: {
+      snapshotId: "snapshot",
+      messageId: "message-1",
+      startOffset: 0,
+      endOffset: quote.length,
+      quote,
+    },
+    sourceReferenceStatus: "valid",
+    lifecycleEvents: [],
+    supportingEvidence: [{
+      kind: "duplicate-occurrence",
+      text: quote,
+      evidence: {
+        snapshotId: "snapshot",
+        messageId: "message-2",
+        startOffset: 50,
+        endOffset: 50 + quote.length,
+        quote,
+      },
+      sourceReferenceStatus: "valid",
+    }],
+  }, ["Asha", "Neha"], undefined, [
+    { authorRaw: "Asha", messageId: "message-1", startOffset: 0, endOffset: quote.length },
+    { authorRaw: "Asha", messageId: "message-2", startOffset: 50, endOffset: 50 + quote.length },
+  ]);
+
+  assert.match(markup, /repeated request/u);
+  assert.match(markup, /Asha: Neha, please send the vendor quotation\./u);
+});
+
 test("the input panel renders the one-click demo and load-and-analyze variants", () => {
   const markup = renderToStaticMarkup(React.createElement(App));
 

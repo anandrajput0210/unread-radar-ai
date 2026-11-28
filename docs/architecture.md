@@ -27,10 +27,11 @@ Unread Radar AI runs entirely in the browser. Data flows in one direction:
 
 ## Dependency rules
 
-1. `lib/extraction`, `lib/import`, `lib/validation`, `lib/views`, `lib/export` are **pure**: no React, no DOM, no network. They are testable with `node --test`.
+1. `lib/identity`, `lib/extraction`, `lib/import`, `lib/validation`, `lib/views`, `lib/export` are **pure**: no React, no DOM, no network. They are testable with `node --test`.
 2. `lib/ai` may import from `lib/extraction`, `lib/import`, `lib/validation`, `lib/views`; never the reverse.
 3. `components/` and `App.jsx` may import from `lib/`; `lib/` never imports from `components/`.
-4. Inside `lib/extraction` the module graph is acyclic (see below). Import from `extraction/index.js` outside the folder.
+4. `lib/identity` is a low-level shared participant-name resolver. Extraction and views may depend on it; it never depends on either layer.
+5. Inside `lib/extraction` the module graph is acyclic (see below). Import from `extraction/index.js` outside the folder.
 
 ## `lib/extraction` module map
 
@@ -43,7 +44,8 @@ Unread Radar AI runs entirely in the browser. Data flows in one direction:
 | `timing.js` | Deadline and timing-signal extraction |
 | `mentions.js` | `@mention` extraction |
 | `candidates.js` | Task candidates: addressed, self-commitment, bullets, Hinglish, relay, overdue |
-| `matching.js` | Owner/speaker matching, relation scoring, supporting details |
+| `matching.js` | Participant-aware owner matching, relation scoring, supporting details |
+| `claims.js` | Recent unowned-claim eligibility and requester/respondent identity checks |
 | `conditions.js` | Prerequisites and their resolution across speakers |
 | `lifecycle.js` | assigned → acknowledged → in progress → delayed → done/cancelled/reassigned |
 | `actions.js` | Orchestrates candidates, conditions, lifecycle into task records |
@@ -51,8 +53,8 @@ Unread Radar AI runs entirely in the browser. Data flows in one direction:
 | `analyze.js` | `analyzeConversations`, the single entry point |
 | `index.js` | Public API |
 
-Dependency order (each module only imports from those above it):
-`constants → text → dates → records → timing / mentions / candidates / matching / conditions → lifecycle → actions → summary → analyze`.
+`lib/identity.js` is shared by extraction and views and imports from neither. Dependency order inside extraction:
+`constants → text → dates → records → timing / mentions / candidates / matching / claims / conditions → lifecycle → actions → summary → analyze`.
 
 ## Where to add things
 

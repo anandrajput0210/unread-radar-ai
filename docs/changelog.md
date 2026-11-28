@@ -1,5 +1,12 @@
 # Changelog
 
+## Ownership and lifecycle integrity — 2026-11-28
+
+- Centralized whole-token participant resolution below extraction and view layers; lifecycle attribution now compares identities against all chat speakers.
+- Restricted pronoun-only ownership disputes to a single immediately preceding task, preserving existing lifecycle state and ordering evidence by source position.
+- Kept identical repeated requests as one task while retaining later occurrences as validated source evidence in the Why timeline.
+- Added synthetic regression coverage; benchmark fixtures and scoring were not changed.
+
 ## Ambiguous first-name owner safety — 2026-11-28
 
 - Fixed in `e66b3f7`: Phase 5 documented the same-first-name Ravi addressee as a confirmed owner and skipped the regression test.

@@ -1,31 +1,10 @@
+import { resolveParticipantIdentity, sameParticipantIdentity } from "../identity.js";
+
 const CLAIM_SOURCES = new Set([
   "claimed_by_commitment",
   "claimed_by_progress",
   "unique_acknowledgement",
 ]);
-
-function normalizedTokens(value) {
-  return String(value ?? "")
-    .normalize("NFC")
-    .replace(/^@/u, "")
-    .toLocaleLowerCase()
-    .split(/\s+/u)
-    .filter(Boolean);
-}
-
-function matchesOwner(owner, speaker) {
-  const ownerTokens = normalizedTokens(owner);
-  const speakerTokens = normalizedTokens(speaker);
-  return ownerTokens.length > 0
-    && (ownerTokens.every((token) => speakerTokens.includes(token))
-      || speakerTokens.every((token) => ownerTokens.includes(token)));
-}
-
-function matchingSpeakers(owner, speakers) {
-  const matches = speakers.filter((speaker) => matchesOwner(owner, speaker));
-  const exact = matches.filter((speaker) => normalizedTokens(speaker).join(" ") === normalizedTokens(owner).join(" "));
-  return exact.length ? exact : matches;
-}
 
 const HUMAN_REVIEW_TEXT = Object.freeze({
   "needs-review": "Awaiting your review.",
@@ -118,7 +97,7 @@ function buildOwnerBasis(task, speakers) {
     };
   }
 
-  if (matchingSpeakers(owner, speakers).length > 1) {
+  if (resolveParticipantIdentity(owner, speakers).status === "ambiguous") {
     return {
       status: "ambiguous",
       reason: "More than one person could match. Not guessing.",
@@ -133,7 +112,8 @@ function buildOwnerBasis(task, speakers) {
   }
 
   const reassignedToOwner = (Array.isArray(task.lifecycleEvents) ? task.lifecycleEvents : [])
-    .some((event) => event?.type === "reassigned" && matchesOwner(owner, event.newOwner));
+    .some((event) => event?.type === "reassigned"
+      && sameParticipantIdentity(owner, event.newOwner, speakers));
   if (task.ownerBasis === "implied-addressee"
     || task.ownerSource === "implied_addressee"
     || task.ownerSource === "implied-addressee") {
@@ -229,6 +209,26 @@ function buildTimeline(task, messages) {
       messageIndex,
       referenceStatus: typeof event.sourceReferenceStatus === "string"
         ? event.sourceReferenceStatus
+        : "unverified",
+      offset: sourceOffset(reference),
+    });
+  }
+
+  for (const detail of Array.isArray(task?.supportingEvidence) ? task.supportingEvidence : []) {
+    if (detail?.kind !== "duplicate-occurrence") continue;
+    const reference = detail.evidence || detail.sourceSpan;
+    const quote = typeof detail.evidence?.quote === "string"
+      ? detail.evidence.quote
+      : typeof detail.text === "string" ? detail.text : "";
+    if (!quote) continue;
+    const messageIndex = findMessageIndex(reference, messages);
+    events.push({
+      type: "repeated-request",
+      quote,
+      speaker: speakerAt(messages, messageIndex),
+      messageIndex,
+      referenceStatus: typeof detail.sourceReferenceStatus === "string"
+        ? detail.sourceReferenceStatus
         : "unverified",
       offset: sourceOffset(reference),
     });
